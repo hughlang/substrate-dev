@@ -1,10 +1,12 @@
 use parity_codec::{Encode, Decode};
-use support::{decl_storage, decl_module, ensure, StorageMap, StorageValue, dispatch::Result};
+use support::{decl_storage, decl_module, decl_event, ensure, StorageMap, StorageValue, dispatch::Result};
 use system::ensure_signed;
 use runtime_primitives::traits::{As, Hash};
 use super::*;
 
-pub trait Trait: balances::Trait {}
+pub trait Trait: balances::Trait {
+    type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
+}
 
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -15,11 +17,21 @@ pub struct Kitty<Hash, Balance> {
     gen: u64,
 }
 
+// NOTE: We have added this `decl_event!` template for you
+decl_event!(
+    pub enum Event<T>
+    where
+        <T as system::Trait>::AccountId,
+        <T as system::Trait>::Hash
+    {
+        // ACTION: Add a `Created` event which includes an `AccountId` and a `Hash`
+        Created(AccountId, Hash),
+    }
+);
+
 decl_storage! {
     trait Store for Module<T: Trait> as KittyStorage {
         // Declare storage and getter functions here
-        // OwnedKitty: map T::AccountId => Kitty<T::Hash, T::Balance>;
-        // KittyItem: map T::AccountId => Kitty<T::Hash, T::Balance>;
 
         Kitties get(kitty): map T::Hash => Kitty<T::Hash, T::Balance>;
         KittyOwner get(owner_of): map T::Hash => Option<T::AccountId>;
@@ -32,7 +44,8 @@ decl_storage! {
 decl_module! {
     pub struct Module<T: Trait> for enum Call where origin: T::Origin {
         // Declare public functions here
-        // NOTE: This function template has changed from the previous section
+        fn deposit_event<T>() = default;
+
         fn create_kitty(origin) -> Result {
             let sender = ensure_signed(origin)?;
 
@@ -54,6 +67,7 @@ decl_module! {
             <OwnedKitty<T>>::insert(&sender, random_hash);
 
             <Nonce<T>>::mutate(|n| *n += 1);
+            Self::deposit_event(RawEvent::Created(sender, random_hash));
 
             Ok(())
         }
