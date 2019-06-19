@@ -27,6 +27,7 @@ decl_event!(
         // ACTION: Add a `Created` event which includes an `AccountId` and a `Hash`
         Created(AccountId, Hash),
         PriceSet(AccountId, Hash, Balance),
+        Transferred(AccountId, AccountId, Hash),
     }
 );
 
@@ -53,9 +54,8 @@ decl_storage! {
 
         // ACTION: Add a new storage item `OwnedKittiesCount` which is a `map` from `T::AccountId` to `u64`
         // ACTION: Add a new storage item `OwnedKittiesIndex` which is a `map` from `T::Hash` to `u64`
-        OwnedKittiesCount get(num_owned_kitties): map T::AccountId => u64;
+        OwnedKittiesCount get(owned_kitty_count): map T::AccountId => u64;
         OwnedKittiesIndex get(owned_kitties_index): map T::Hash => u64;
-
 
         Nonce: u64;
     }
@@ -110,21 +110,27 @@ decl_module! {
 
             Ok(())
         }
+
+        fn transfer(origin, to: T::AccountId, kitty_id: T::Hash) -> Result {
+            let sender = ensure_signed(origin)?;
+
+            let owner = Self::owner_of(kitty_id).ok_or("No owner for this kitty")?;
+            ensure!(owner == sender, "You do not own this kitty");
+
+            Self::transfer_from(sender, to, kitty_id)?;
+
+            Ok(())
+        }
     }
 }
 
 
 impl<T: Trait> Module<T> {
     fn mint(to: T::AccountId, kitty_id: T::Hash, new_kitty: Kitty<T::Hash, T::Balance>) -> Result {
-        // ACTION: Refactored code goes here
-        //   NOTE: Some variables have been renamed to generalize the function
-        //         In the end, you should remember add the following call to `create_kitty()`:
-        //         `Self::mint(sender, random_hash, new_kitty)?;`
-        //   HINT: This `mint()` function has checks which could fail AND will write to storage, so place it carefully
 
         // ACTION: Generate variables `owned_kitty_count` and `new_owned_kitty_count`
         //         similar to `all_kitties_count` below
-        let owned_kitty_count = Self::num_owned_kitties(&to);
+        let owned_kitty_count = Self::owned_kitty_count(&to);
         let new_owned_kitty_count = owned_kitty_count.checked_add(1).ok_or("Overflow adding a new kitty")?;
 
         // ACTION: Get the current `AllKittiesCount` value and store it in `all_kitties_count`
@@ -152,6 +158,62 @@ impl<T: Trait> Module<T> {
 
         Self::deposit_event(RawEvent::Created(to, kitty_id));
 
+        Ok(())
+    }
+
+    fn transfer_from(from: T::AccountId, to: T::AccountId, kitty_id: T::Hash) -> Result {
+        // ACTION: Check if owner exists for `kitty_id`
+        //         - If it does, sanity check that `from` is the `owner`
+        //         - If it doesn't, return an `Err()` that no `owner` exists
+
+        // ensure!(<Kitties<T>>::exists(kitty_id), "This cat does not exist");
+        // let mut kitty = Self::kitty(kitty_id);
+
+        let owner = Self::owner_of(kitty_id).ok_or("No owner for this kitty")?;
+        ensure!(owner == from, "From account is not the owner");
+
+        let owned_kitty_count_from = Self::owned_kitty_count(&from);
+        let owned_kitty_count_to = Self::owned_kitty_count(&to);
+
+        // ACTION: Used `checked_add()` to increment the `owned_kitty_count_to` by one into `new_owned_kitty_count_to`
+        // ACTION: Used `checked_sub()` to decrement the `owned_kitty_count_from` by one into `new_owned_kitty_count_from`
+        //         - Return an `Err()` if overflow or underflow
+
+        let new_owned_kitty_count_to = owned_kitty_count_to.checked_add(1).ok_or("Overflow adding a new kitty to account balance")?;
+        let new_owned_kitty_count_from = owned_kitty_count_from.checked_sub(1).ok_or("Overflow subtracing a new kitty to account balance")?;
+
+        // NOTE: This is the "swap and pop" algorithm we have added for you
+        //       We use our storage items to help simplify the removal of elements from the OwnedKittiesArray
+        //       We switch the last element of OwnedKittiesArray with the element we want to remove
+        let kitty_index = <OwnedKittiesIndex<T>>::get(kitty_id);
+        if kitty_index != new_owned_kitty_count_from {
+            let last_kitty_id = <OwnedKittiesArray<T>>::get((from.clone(), new_owned_kitty_count_from));
+            <OwnedKittiesArray<T>>::insert((from.clone(), kitty_index), last_kitty_id);
+            <OwnedKittiesIndex<T>>::insert(last_kitty_id, kitty_index);
+        }
+        // Now we can remove this item by removing the last element
+
+        // ACTION: Update KittyOwner for `kitty_id`
+        <KittyOwner<T>>::insert(kitty_id, &to);
+        // ACTION: Update OwnedKittiesIndex for `kitty_id`
+        <OwnedKittiesIndex<T>>::insert(kitty_id, owned_kitty_count_to);
+
+        // ACTION: Update OwnedKittiesArray to remove the element from `from`, and add an element to `to`
+        //   HINT: The last element in OwnedKittiesArray(from) is `new_owned_kitty_count_from`
+        //              The last element in OwnedKittiesArray(to) is `owned_kitty_count_to`
+
+        <OwnedKittiesArray<T>>::remove((from.clone(), new_owned_kitty_count_from));
+        <OwnedKittiesArray<T>>::insert((to.clone(), owned_kitty_count_to), kitty_id);
+
+        // ACTION: Update the OwnedKittiesCount for `from` and `to`
+        <OwnedKittiesCount<T>>::insert(&from, new_owned_kitty_count_from);
+        <OwnedKittiesCount<T>>::insert(&to, new_owned_kitty_count_to);
+        // ACTION: Deposit a `Transferred` event with the relevant data:
+        //         - from
+        //         - to
+        //         - kitty_id
+
+        Self::deposit_event(RawEvent::Transferred(from, to, kitty_id));
         Ok(())
     }
 }
