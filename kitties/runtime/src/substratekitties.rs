@@ -1,7 +1,9 @@
 use parity_codec::{Encode, Decode};
 use support::{decl_storage, decl_module, decl_event, ensure, StorageMap, StorageValue, dispatch::Result};
+use support::traits::Currency;
+
 use system::ensure_signed;
-use runtime_primitives::traits::{As, Hash};
+use runtime_primitives::traits::{As, Hash, Zero};
 
 pub trait Trait: balances::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
@@ -28,6 +30,7 @@ decl_event!(
         Created(AccountId, Hash),
         PriceSet(AccountId, Hash, Balance),
         Transferred(AccountId, AccountId, Hash),
+        Bought(AccountId, AccountId, Hash, Balance),
     }
 );
 
@@ -48,8 +51,6 @@ decl_storage! {
         AllKittiesCount get(num_of_kitties): u64;
         AllKittiesIndex get(index_of): map T::Hash => u64;
 
-        // ACTION: Rename this to `OwnedKittiesArray`/`kitty_of_owner_by_index`
-        //         Have the key be a tuple of (T::AccountId, u64)
         OwnedKittiesArray get(kitty_of_owner_by_index): map (T::AccountId, u64) => T::Hash;
 
         // ACTION: Add a new storage item `OwnedKittiesCount` which is a `map` from `T::AccountId` to `u64`
@@ -121,6 +122,52 @@ decl_module! {
 
             Ok(())
         }
+
+        fn buy_kitty(origin, kitty_id: T::Hash, max_price: T::Balance) -> Result {
+            let sender = ensure_signed(origin)?;
+
+            // ACTION: Check the kitty `exists()`
+            ensure!(<Kitties<T>>::exists(kitty_id), "This cat does not exist");
+
+            // ACTION: Get the `owner` of the kitty if it exists, otherwise return an `Err()`
+            let owner = Self::owner_of(kitty_id).ok_or("No owner for this kitty")?;
+            // ACTION: Check that the `sender` is not the `owner`
+            ensure!(owner != sender, "Cat already owned");
+
+            let mut kitty = Self::kitty(kitty_id);
+            let price = kitty.price;
+            // ACTION: Get the `kitty_price` and check that it is not zero
+            //   HINT:  `runtime_primitives::traits::Zero` allows you to call `kitty_price.is_zero()` which returns a bool
+            ensure!(!price.is_zero(), "The cat you want to buy is not for sale");
+            ensure!(price <= max_price, "The cat you want to buy costs more than your max price");
+
+            // ACTION: Check `kitty_price` is less than or equal to max_price
+            ensure!(price <= max_price, "Kitty price is above the max price submitted");
+
+            // ACTION: Use the `Balances` module's `Currency` trait and `transfer()` function to safely transfer funds
+            <balances::Module<T> as Currency<_>>::transfer(&sender, &owner, price)?;
+
+            // ACTION: Transfer the kitty using `tranfer_from()` including a proof of why it cannot fail
+            Self::transfer_from(owner.clone(), sender.clone(), kitty_id)
+                .expect("`owner` is shown to own the kitty; \
+                `owner` must have greater than 0 kitties, so transfer cannot cause underflow; \
+                `all_kitty_count` shares the same type as `owned_kitty_count` \
+                and minting ensure there won't ever be more than `max()` kitties, \
+                which means transfer cannot cause an overflow; \
+                qed");
+
+            // ACTION: Reset kitty price back to zero, and update the storage
+            kitty.price = <T::Balance as As<u64>>::sa(0);
+            <Kitties<T>>::insert(kitty_id, kitty);
+            // ACTION: Create an event for the cat being bought with relevant details
+            //         - new owner
+            //         - old owner
+            //         - the kitty id
+            //         - the price sold for
+            Self::deposit_event(RawEvent::Bought(sender, owner, kitty_id, price));
+
+            Ok(())
+        }
     }
 }
 
@@ -165,9 +212,6 @@ impl<T: Trait> Module<T> {
         // ACTION: Check if owner exists for `kitty_id`
         //         - If it does, sanity check that `from` is the `owner`
         //         - If it doesn't, return an `Err()` that no `owner` exists
-
-        // ensure!(<Kitties<T>>::exists(kitty_id), "This cat does not exist");
-        // let mut kitty = Self::kitty(kitty_id);
 
         let owner = Self::owner_of(kitty_id).ok_or("No owner for this kitty")?;
         ensure!(owner == from, "From account is not the owner");
