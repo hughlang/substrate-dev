@@ -21,11 +21,38 @@ pub trait Trait: system::Trait {
 
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub struct Group<AccountId, Hash> {
+pub struct Group<Hash> {
     id: Hash,
 	name: Vec<u8>,
+	status: u32,
 	max_size: u32,
-	owner: AccountId,
+	members: Vec<Hash>,
+}
+
+// #[derive(Encode, Decode, Default, Clone, PartialEq)]
+// #[cfg_attr(feature = "std", derive(Debug))]
+// pub struct Member<AccountId, Hash> {
+
+// }
+
+/*
+	Storage TODO
+	– Invite
+	– Member
+	– Vote
+*/
+
+decl_storage! {
+	trait Store for Module<T: Trait> as GroupsModule {
+		/// Groups is a mapping of group_id hash to the Group itself
+		Groups get(group): map T::Hash => Group<T::Hash>;
+		GroupOwner get(owner_of): map T::Hash => Option<T::AccountId>;
+		LiveGroupsCount get(live_groups_count): u64;
+
+		// AllGroupsCount get(total_groups): u64;
+
+		Nonce: u64;
+	}
 }
 
 decl_event!(
@@ -37,15 +64,6 @@ decl_event!(
 	}
 );
 
-decl_storage! {
-	trait Store for Module<T: Trait> as GroupsModule {
-		Groups get(group): map T::Hash => Group<T::AccountId, T::Hash>;
-		// AllGroupsCount get(total_groups): u64;
-
-		Nonce: u64;
-	}
-}
-
 decl_module! {
 	/// The module declaration.
 	pub struct Module<T: Trait> for enum Call where origin: T::Origin {
@@ -53,21 +71,35 @@ decl_module! {
 		// this is needed only if you are using events in your module
 		fn deposit_event<T>() = default;
 
+		/*
+			Use cases TODO:
+			– Create group
+			– Update group
+			– Remove group
+			– Request invite
+			– Create invite
+			– Accept invite
+			– List members
+			– Verify member (groupId, accountId)
+			– Broadcast message?
+			– Request vote
+			– Submit vote
+		*/
 
 		/// Create a group owned by the current AccountId
-		fn create_group(origin, bytes: Vec<u8>) -> Result {
+		fn create_group(origin, bytes: Vec<u8>, max_size: u32) -> Result {
 			let sender = ensure_signed(origin)?;
 
             let nonce = <Nonce<T>>::get();
             let random_hash = (<system::Module<T>>::random_seed(), &sender, nonce)
                 .using_encoded(<T as system::Trait>::Hashing::hash);
 			// let bytes = name.into_bytes();
-			let group = Group {
-				id: random_hash,
-				name: bytes,
-				max_size: 0,
-				owner: sender,
-			};
+			// let group = Group {
+			// 	id: random_hash,
+			// 	name: bytes,
+			// 	max_size: max_size,
+			// 	owner: sender,
+			// };
 			<Nonce<T>>::mutate(|n| *n += 1);
 			Ok(())
 		}
@@ -81,7 +113,9 @@ decl_module! {
 
 /// Private methods
 impl<T: Trait> Module<T> {
+	// fn new_group(to: T::AccountId, kitty_id: T::Hash, group: Group<T::Hash, T::Balance>) -> Result {
 
+	// }
 }
 
 // *****************************************************************************************************
