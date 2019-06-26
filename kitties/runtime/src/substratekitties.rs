@@ -1,9 +1,9 @@
 use parity_codec::{Encode, Decode};
+use rstd::cmp;
+use runtime_primitives::traits::{As, Hash, Zero};
 use support::{decl_storage, decl_module, decl_event, ensure, StorageMap, StorageValue, dispatch::Result};
 use support::traits::Currency;
-
 use system::ensure_signed;
-use runtime_primitives::traits::{As, Hash, Zero};
 
 pub trait Trait: balances::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
@@ -165,6 +165,52 @@ decl_module! {
             //         - the kitty id
             //         - the price sold for
             Self::deposit_event(RawEvent::Bought(sender, owner, kitty_id, price));
+
+            Ok(())
+        }
+
+        fn breed_kitty(origin, kitty_id_1: T::Hash, kitty_id_2: T::Hash) -> Result {
+            let sender = ensure_signed(origin)?;
+
+            // ACTION: Check both kitty 1 and kitty 2 "exists"
+            ensure!(<Kitties<T>>::exists(kitty_id_1), "Kitty 1 does not exist");
+            ensure!(<Kitties<T>>::exists(kitty_id_2), "Kitty 2 does not exist");
+
+            // ACTION: Generate a `random_hash` using the <Nonce<T>>
+            let nonce = <Nonce<T>>::get();
+            let random_hash = (<system::Module<T>>::random_seed(), &sender, nonce)
+                .using_encoded(<T as system::Trait>::Hashing::hash);
+
+            let kitty_1 = Self::kitty(kitty_id_1);
+            let kitty_2 = Self::kitty(kitty_id_2);
+
+            // NOTE: Our gene splicing algorithm, feel free to make it your own
+            let mut final_dna = kitty_1.dna;
+            for (i, (dna_2_element, r)) in kitty_2.dna.as_ref().iter().zip(random_hash.as_ref().iter()).enumerate() {
+                if r % 2 == 0 {
+                    final_dna.as_mut()[i] = *dna_2_element;
+                }
+            }
+
+            // ACTION: Create a `new_kitty` using:
+            //         - `random_hash` as `id`
+            //         - `final_dna` as `dna`
+            //         - 0 as `price`
+            //         - the max of the parent's `gen` + 1
+            //   HINT: `rstd::cmp::max(1, 5) + 1` is `6`
+
+            let new_kitty = Kitty {
+                id: random_hash,
+                dna: final_dna,
+                price: <T::Balance as As<u64>>::sa(0),
+                gen: rstd::cmp::max(kitty_1.gen, kitty_2.gen) + 1,
+            };
+
+            // ACTION: `mint()` your new kitty
+            Self::mint(sender, random_hash, new_kitty)?;
+
+            // ACTION: Update the <Nonce<T>>
+            <Nonce<T>>::mutate(|n| *n += 1);
 
             Ok(())
         }
