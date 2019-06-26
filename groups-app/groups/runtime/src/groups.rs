@@ -19,10 +19,9 @@ pub trait Trait: system::Trait {
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
 
-/// This module's storage items.
 decl_storage! {
-	trait Store for Module<T: Trait> as TemplateModule {
-		// Just a dummy storage item. 
+	trait Store for Module<T: Trait> as GroupsModule {
+		// Just a dummy storage item.
 		// Here we are declaring a StorageValue, `Something` as a Option<u32>
 		// `get(something)` is the default getter which returns either the stored `u32` or `None` if nothing stored
 		Something get(something): Option<u32>;
@@ -102,7 +101,7 @@ mod tests {
 	impl Trait for Test {
 		type Event = ();
 	}
-	type TemplateModule = Module<Test>;
+	type GroupsModule = Module<Test>;
 
 	// This function basically just builds a genesis storage key/value store according to
 	// our desired mockup.
@@ -115,9 +114,9 @@ mod tests {
 		with_externalities(&mut new_test_ext(), || {
 			// Just a dummy test for the dummy funtion `do_something`
 			// calling the `do_something` function with a value 42
-			assert_ok!(TemplateModule::do_something(Origin::signed(1), 42));
+			assert_ok!(GroupsModule::do_something(Origin::signed(1), 42));
 			// asserting that the stored value is equal to what we stored
-			assert_eq!(TemplateModule::something(), Some(42));
+			assert_eq!(GroupsModule::something(), Some(42));
 		});
 	}
 }
