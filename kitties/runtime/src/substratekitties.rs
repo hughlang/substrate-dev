@@ -307,3 +307,64 @@ impl<T: Trait> Module<T> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ACTION: Import test module dependencies here
+    use support::{impl_outer_origin, assert_ok, assert_noop};
+    use runtime_io::{with_externalities, TestExternalities};
+    use primitives::{H256, Blake2Hasher};
+    use runtime_primitives::{
+        BuildStorage,
+        traits::{BlakeTwo256, IdentityLookup},
+        testing::{Digest, DigestItem, Header}
+    };
+
+    impl_outer_origin! {
+        pub enum Origin for KittiesTest {}
+    }
+
+    #[derive(Clone, Eq, PartialEq)]
+    pub struct KittiesTest;
+
+    impl system::Trait for KittiesTest {
+        type Origin = Origin;
+        type Index = u64;
+        type BlockNumber = u64;
+        type Hash = H256;
+        type Hashing = BlakeTwo256;
+        type Digest = Digest;
+        type AccountId = u64;
+        type Lookup = IdentityLookup<Self::AccountId>;
+        type Header = Header;
+        type Event = ();
+        type Log = DigestItem;
+    }
+
+    impl balances::Trait for KittiesTest {
+        // ACTION: Implement traits for balances module
+        type Balance = u64;
+        type OnFreeBalanceZero = ();
+        type OnNewAccount = ();
+        type Event = ();
+        type TransactionPayment = ();
+        type TransferPayment = ();
+        type DustRemoval = ();
+    }
+
+    impl super::Trait for KittiesTest {
+        // ACTION: Implement traits for your own module
+        type Event = ();
+    }
+
+    // ACTION: Build a genesis storage key/value store
+    type Kitties = super::Module<KittiesTest>;
+
+    fn build_ext() -> TestExternalities<Blake2Hasher> {
+        let mut t = system::GenesisConfig::<KittiesTest>::default().build_storage().unwrap().0;
+        t.extend(balances::GenesisConfig::<KittiesTest>::default().build_storage().unwrap().0);
+        t.into()
+    }
+}
