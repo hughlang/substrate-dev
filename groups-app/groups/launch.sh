@@ -1,0 +1,1 @@
+./target/release/groups --dev
