@@ -7,17 +7,23 @@ use runtime_primitives::traits::{As, Hash, Zero};
 use support::{decl_module, decl_storage, decl_event, ensure, dispatch::Result, StorageMap, StorageValue};
 use system::ensure_signed;
 
+#[cfg(not(feature = "std"))]
+use rstd::prelude::Vec;
+#[cfg(feature = "std")]
+use std::vec::Vec;
 /// The module's configuration trait.
 pub trait Trait: system::Trait {
+	// type AccountId = u64;
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
 
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub struct Group<Hash> {
+pub struct Group<AccountId, Hash> {
     id: Hash,
-	// name: U256,
+	// name: Vec<u8>,
 	max_size: u32,
+	owner: AccountId,
 }
 
 
@@ -32,7 +38,7 @@ decl_event!(
 
 decl_storage! {
 	trait Store for Module<T: Trait> as GroupsModule {
-		Groups get(group): map T::Hash => Group<T::Hash>;
+		Groups get(group): map T::Hash => Group<T::AccountId, T::Hash>;
 		// AllGroupsCount get(total_groups): u64;
 
 		Nonce: u64;
@@ -45,6 +51,7 @@ decl_module! {
 		// Initializing events
 		// this is needed only if you are using events in your module
 		fn deposit_event<T>() = default;
+
 
 		/// Create a group owned by the current AccountId
 		fn create_group(origin) -> Result {
