@@ -21,11 +21,14 @@ pub trait Trait: system::Trait {
 
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub struct Group<Hash> {
+pub struct Group<AccountId, Hash> {
     id: Hash,
+	owner: AccountId,
 	name: Vec<u8>,
-	members: Vec<Hash>,
+	members: Vec<AccountId>,
+	/// Limit number of users who can join the group
 	max_size: u32,
+
 }
 
 // #[derive(Encode, Decode, Default, Clone, PartialEq)]
@@ -44,7 +47,7 @@ pub struct Group<Hash> {
 decl_storage! {
 	trait Store for Module<T: Trait> as GroupsModule {
 		/// Groups is a mapping of group_id hash to the Group itself
-		Groups get(group): map T::Hash => Group<T::Hash>;
+		Groups get(group): map T::Hash => Group<T::AccountId, T::Hash>;
 		GroupOwner get(owner_of): map T::Hash => Option<T::AccountId>;
 		AllGroupsCount get(all_groups_count): u64;
 
@@ -78,6 +81,7 @@ decl_module! {
 			– Create invite
 			– Accept invite
 			– Add member
+			– Remove member
 			– List members
 			– Verify member (groupId, accountId)
 			– Broadcast message?
@@ -85,30 +89,47 @@ decl_module! {
 			– Submit vote
 		*/
 
-		/// Create a group owned by the current AccountId
-		fn create_group(origin, bytes: Vec<u8>, max_size: u32) -> Result {
+		/// Create a group owned by the current AccountId.
+		///
+		fn create_group(origin, name: Vec<u8>, max_size: u32) -> Result {
 			let sender = ensure_signed(origin)?;
 
             let nonce = <Nonce<T>>::get();
-            let random_hash = (<system::Module<T>>::random_seed(), &sender, nonce)
+            let random_id = (<system::Module<T>>::random_seed(), &sender, nonce)
                 .using_encoded(<T as system::Trait>::Hashing::hash);
 
 			let total_groups = Self::all_groups_count();
+			let new_groups_count = total_groups.checked_add(1).ok_or("Overflow adding a new group")?;
 
 			let group = Group {
-				id: random_hash,
-				name: bytes,
+				id: random_id,
+				owner: sender.clone(),
+				name: name,
 				members: Vec::new(),
 				max_size: max_size,
 			};
-			<Groups<T>>::insert(random_hash, group);
-			// <GroupOwner<T>>::insert(sender, &random_hash);
+			<Groups<T>>::insert(random_id, group);
+			<GroupOwner<T>>::insert(random_id, &sender);
+			<AllGroupsCount<T>>::put(new_groups_count);
 
 			<Nonce<T>>::mutate(|n| *n += 1);
+			// Self::deposit_event(RawEvent::CreatedGroup(sender, kitty_id, new_price));
+
 			Ok(())
 		}
 
-		fn rename_group(group_id: T::Hash, bytes: Vec<u8>) -> Result {
+		/// Renaming a group by converting the String name into a byte array
+		/// Rule: only the owner is allowed to use this function.
+		fn rename_group(origin, group_id: T::Hash, name: Vec<u8>) -> Result {
+
+			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
+			let mut group = Self::group(group_id);
+
+			let sender = ensure_signed(origin)?;
+			ensure!(group.owner == sender, "You are not the owner of this group");
+			group.name = name;
+			<Groups<T>>::insert(group.id, group);
+
 			Ok(())
 		}
 
