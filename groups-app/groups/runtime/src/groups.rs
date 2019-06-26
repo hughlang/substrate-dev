@@ -4,7 +4,7 @@
 /// https://github.com/paritytech/substrate/blob/master/srml/example/src/lib.rs
 use parity_codec::{Encode, Decode};
 use runtime_primitives::traits::{As, Hash, Zero};
-use support::{decl_module, decl_storage, decl_event, StorageMap, StorageValue, dispatch::Result};
+use support::{decl_module, decl_storage, decl_event, ensure, dispatch::Result, StorageMap, StorageValue};
 use system::ensure_signed;
 
 /// The module's configuration trait.
@@ -16,20 +16,26 @@ pub trait Trait: system::Trait {
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct Group<Hash> {
     id: Hash,
+	// name: U256,
 	max_size: u32,
 }
 
 
 decl_event!(
-	pub enum Event<T> where AccountId = <T as system::Trait>::AccountId {
-		CreatedGroup(AccountId),
+	pub enum Event<T> where
+		<T as system::Trait>::AccountId,
+        <T as system::Trait>::Hash
+	{
+		CreatedGroup(AccountId, Hash),
 	}
 );
 
 decl_storage! {
 	trait Store for Module<T: Trait> as GroupsModule {
 		Groups get(group): map T::Hash => Group<T::Hash>;
-		// Kitties get(kitty): map T::Hash => Kitty<T::Hash, T::Balance>;
+		// AllGroupsCount get(total_groups): u64;
+
+		Nonce: u64;
 	}
 }
 
@@ -40,21 +46,18 @@ decl_module! {
 		// this is needed only if you are using events in your module
 		fn deposit_event<T>() = default;
 
-		// Just a dummy entry point.
-		// function that can be called by the external world as an extrinsics call
-		// takes a parameter of the type `AccountId`, stores it and emits an event
-		pub fn do_something(origin, something: u32) -> Result {
-			// TODO: You only need this if you want to check it was signed.
-			let who = ensure_signed(origin)?;
+		/// Create a group owned by the current AccountId
+		fn create_group(origin) -> Result {
+			let sender = ensure_signed(origin)?;
 
-			// TODO: Code to execute when something calls this.
-			// For example: the following line stores the passed in u32 in the storage
-			// <Something<T>>::put(something);
+            let nonce = <Nonce<T>>::get();
+            let random_hash = (<system::Module<T>>::random_seed(), &sender, nonce)
+                .using_encoded(<T as system::Trait>::Hashing::hash);
 
-			// here we are raising the Something event
-			// Self::deposit_event(RawEvent::SomethingStored(something, who));
+			<Nonce<T>>::mutate(|n| *n += 1);
 			Ok(())
 		}
+
 	}
 }
 
@@ -62,6 +65,10 @@ decl_module! {
 impl<T: Trait> Module<T> {
 
 }
+
+// *****************************************************************************************************
+// Beware of tests
+// *****************************************************************************************************
 
 /// tests for this module
 #[cfg(test)]
@@ -115,9 +122,9 @@ mod tests {
 		with_externalities(&mut new_test_ext(), || {
 			// Just a dummy test for the dummy funtion `do_something`
 			// calling the `do_something` function with a value 42
-			assert_ok!(GroupsModule::do_something(Origin::signed(1), 42));
+			// assert_ok!(GroupsModule::do_something(Origin::signed(1), 42));
 			// asserting that the stored value is equal to what we stored
-			assert_eq!(GroupsModule::something(), Some(42));
+			// assert_eq!(GroupsModule::something(), Some(42));
 		});
 	}
 }
