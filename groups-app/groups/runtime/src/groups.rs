@@ -6,14 +6,16 @@ use parity_codec::{Encode, Decode};
 use runtime_primitives::traits::{As, Hash, Zero};
 use support::{decl_module, decl_storage, decl_event, ensure, dispatch::Result, StorageMap, StorageValue};
 use system::ensure_signed;
+// use inherents::{RuntimeString, InherentData};
 
 #[cfg(not(feature = "std"))]
 use rstd::prelude::Vec;
 #[cfg(feature = "std")]
 use std::vec::Vec;
+
 /// The module's configuration trait.
 pub trait Trait: system::Trait {
-	// type AccountId = u64;
+
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
 
@@ -21,11 +23,10 @@ pub trait Trait: system::Trait {
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct Group<AccountId, Hash> {
     id: Hash,
-	// name: Vec<u8>,
+	name: Vec<u8>,
 	max_size: u32,
 	owner: AccountId,
 }
-
 
 decl_event!(
 	pub enum Event<T> where
@@ -54,14 +55,24 @@ decl_module! {
 
 
 		/// Create a group owned by the current AccountId
-		fn create_group(origin) -> Result {
+		fn create_group(origin, bytes: Vec<u8>) -> Result {
 			let sender = ensure_signed(origin)?;
 
             let nonce = <Nonce<T>>::get();
             let random_hash = (<system::Module<T>>::random_seed(), &sender, nonce)
                 .using_encoded(<T as system::Trait>::Hashing::hash);
-
+			// let bytes = name.into_bytes();
+			let group = Group {
+				id: random_hash,
+				name: bytes,
+				max_size: 0,
+				owner: sender,
+			};
 			<Nonce<T>>::mutate(|n| *n += 1);
+			Ok(())
+		}
+
+		fn rename_group(group_id: T::Hash, bytes: Vec<u8>) -> Result {
 			Ok(())
 		}
 
