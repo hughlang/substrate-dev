@@ -24,9 +24,8 @@ pub trait Trait: system::Trait {
 pub struct Group<Hash> {
     id: Hash,
 	name: Vec<u8>,
-	status: u32,
-	max_size: u32,
 	members: Vec<Hash>,
+	max_size: u32,
 }
 
 // #[derive(Encode, Decode, Default, Clone, PartialEq)]
@@ -47,9 +46,8 @@ decl_storage! {
 		/// Groups is a mapping of group_id hash to the Group itself
 		Groups get(group): map T::Hash => Group<T::Hash>;
 		GroupOwner get(owner_of): map T::Hash => Option<T::AccountId>;
-		LiveGroupsCount get(live_groups_count): u64;
+		AllGroupsCount get(all_groups_count): u64;
 
-		// AllGroupsCount get(total_groups): u64;
 
 		Nonce: u64;
 	}
@@ -79,6 +77,7 @@ decl_module! {
 			– Request invite
 			– Create invite
 			– Accept invite
+			– Add member
 			– List members
 			– Verify member (groupId, accountId)
 			– Broadcast message?
@@ -93,13 +92,18 @@ decl_module! {
             let nonce = <Nonce<T>>::get();
             let random_hash = (<system::Module<T>>::random_seed(), &sender, nonce)
                 .using_encoded(<T as system::Trait>::Hashing::hash);
-			// let bytes = name.into_bytes();
-			// let group = Group {
-			// 	id: random_hash,
-			// 	name: bytes,
-			// 	max_size: max_size,
-			// 	owner: sender,
-			// };
+
+			let total_groups = Self::all_groups_count();
+
+			let group = Group {
+				id: random_hash,
+				name: bytes,
+				members: Vec::new(),
+				max_size: max_size,
+			};
+			<Groups<T>>::insert(random_hash, group);
+			// <GroupOwner<T>>::insert(sender, &random_hash);
+
 			<Nonce<T>>::mutate(|n| *n += 1);
 			Ok(())
 		}
