@@ -1,30 +1,35 @@
 /// A runtime module template with necessary imports
 
-/// Feel free to remove or edit this file as needed.
-/// If you change the name of this file, make sure to update its references in runtime/src/lib.rs
-/// If you remove this file, you can remove those references
-
-
 /// For more guidance on Substrate modules, see the example module
 /// https://github.com/paritytech/substrate/blob/master/srml/example/src/lib.rs
-
-use support::{decl_module, decl_storage, decl_event, StorageValue, dispatch::Result};
+use parity_codec::{Encode, Decode};
+use runtime_primitives::traits::{As, Hash, Zero};
+use support::{decl_module, decl_storage, decl_event, StorageMap, StorageValue, dispatch::Result};
 use system::ensure_signed;
 
 /// The module's configuration trait.
 pub trait Trait: system::Trait {
-	// TODO: Add other types and constants required configure this module.
-
-	/// The overarching event type.
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
 
+#[derive(Encode, Decode, Default, Clone, PartialEq)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub struct Group<Hash> {
+    id: Hash,
+	max_size: u32,
+}
+
+
+decl_event!(
+	pub enum Event<T> where AccountId = <T as system::Trait>::AccountId {
+		CreatedGroup(AccountId),
+	}
+);
+
 decl_storage! {
 	trait Store for Module<T: Trait> as GroupsModule {
-		// Just a dummy storage item.
-		// Here we are declaring a StorageValue, `Something` as a Option<u32>
-		// `get(something)` is the default getter which returns either the stored `u32` or `None` if nothing stored
-		Something get(something): Option<u32>;
+		Groups get(group): map T::Hash => Group<T::Hash>;
+		// Kitties get(kitty): map T::Hash => Kitty<T::Hash, T::Balance>;
 	}
 }
 
@@ -44,23 +49,19 @@ decl_module! {
 
 			// TODO: Code to execute when something calls this.
 			// For example: the following line stores the passed in u32 in the storage
-			<Something<T>>::put(something);
+			// <Something<T>>::put(something);
 
 			// here we are raising the Something event
-			Self::deposit_event(RawEvent::SomethingStored(something, who));
+			// Self::deposit_event(RawEvent::SomethingStored(something, who));
 			Ok(())
 		}
 	}
 }
 
-decl_event!(
-	pub enum Event<T> where AccountId = <T as system::Trait>::AccountId {
-		// Just a dummy event.
-		// Event `Something` is declared with a parameter of the type `u32` and `AccountId`
-		// To emit this event, we call the deposit funtion, from our runtime funtions
-		SomethingStored(u32, AccountId),
-	}
-);
+/// Private methods
+impl<T: Trait> Module<T> {
+
+}
 
 /// tests for this module
 #[cfg(test)]
