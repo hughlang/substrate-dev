@@ -28,7 +28,7 @@ pub struct Group<AccountId, Hash> {
 	members: Vec<AccountId>,
 	/// Limit number of users who can join the group
 	max_size: u32,
-
+	timestamp: u64,
 }
 
 // #[derive(Encode, Decode, Default, Clone, PartialEq)]
@@ -68,10 +68,8 @@ decl_event!(
 decl_module! {
 	/// The module declaration.
 	pub struct Module<T: Trait> for enum Call where origin: T::Origin {
-		// Initializing events
-		// this is needed only if you are using events in your module
-		fn deposit_event<T>() = default;
 
+		fn deposit_event<T>() = default;
 		/*
 			Use cases TODO:
 			– Create group
@@ -90,7 +88,6 @@ decl_module! {
 		*/
 
 		/// Create a group owned by the current AccountId.
-		///
 		fn create_group(origin, name: Vec<u8>, max_size: u32) -> Result {
 			let sender = ensure_signed(origin)?;
 
@@ -107,6 +104,7 @@ decl_module! {
 				name: name,
 				members: Vec::new(),
 				max_size: max_size,
+				timestamp: 0,
 			};
 			<Groups<T>>::insert(random_id, group);
 			<GroupOwner<T>>::insert(random_id, &sender);
@@ -121,7 +119,6 @@ decl_module! {
 		/// Renaming a group by converting the String name into a byte array
 		/// Rule: only the owner is allowed to use this function.
 		fn rename_group(origin, group_id: T::Hash, name: Vec<u8>) -> Result {
-
 			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
 			let mut group = Self::group(group_id);
 
@@ -132,6 +129,20 @@ decl_module! {
 
 			Ok(())
 		}
+
+		/// Remove group
+		/// Rule: only owner can remove a group
+		fn remove_group(origin, group_id: T::Hash) -> Result {
+			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
+			let group = Self::group(group_id);
+			let sender = ensure_signed(origin)?;
+
+			ensure!(group.owner == sender, "You are not the owner of this group");
+			<Groups<T>>::remove(group_id);
+
+			Ok(())
+		}
+
 
 	}
 }
