@@ -74,6 +74,12 @@ git = 'https://github.com/paritytech/substrate.git'
 package = 'srml-indices'
 rev = '047e887d1191aa0b85f46570a432c5665bfc1b02'
 
+[dependencies.inherents]
+default_features = false
+git = 'https://github.com/paritytech/substrate.git'
+package = 'substrate-inherents'
+rev = '047e887d1191aa0b85f46570a432c5665bfc1b02'
+
 [dependencies.offchain-primitives]
 default-features = false
 git = 'https://github.com/paritytech/substrate.git'

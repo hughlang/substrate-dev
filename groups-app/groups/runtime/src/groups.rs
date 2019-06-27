@@ -6,6 +6,9 @@ use parity_codec::{Encode, Decode};
 use runtime_primitives::traits::{As, Hash, Zero};
 use support::{decl_module, decl_storage, decl_event, ensure, dispatch::Result, StorageMap, StorageValue};
 use system::ensure_signed;
+// use timestamp::{OnTimestampSet, Trait};
+// use timestamp::TimestampInherentData;
+// use inherents::{InherentDataProviders, ProvideInherentData};
 // use inherents::{RuntimeString, InherentData};
 
 #[cfg(not(feature = "std"))]
@@ -13,9 +16,10 @@ use rstd::prelude::Vec;
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
-/// The module's configuration trait.
-pub trait Trait: system::Trait {
+const MAX_GROUP_SIZE: u32 = 8;
 
+/// The module's configuration trait.
+pub trait Trait: system::Trait + timestamp::Trait {
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
 
@@ -60,6 +64,7 @@ decl_event!(
 	pub enum Event<T> where
 		<T as system::Trait>::AccountId,
         <T as system::Trait>::Hash
+		// <T as timestamp::Trait>::Timestamp,
 	{
 		CreatedGroup(AccountId, Hash),
 	}
@@ -69,7 +74,14 @@ decl_module! {
 	/// The module declaration.
 	pub struct Module<T: Trait> for enum Call where origin: T::Origin {
 
+		pub fn get_time(origin) -> Result {
+			let _sender = ensure_signed(origin)?;
+			let _now = <timestamp::Module<T>>::get();
+			Ok(())
+		}
+
 		fn deposit_event<T>() = default;
+
 		/*
 			Use cases TODO:
 			– Create group
@@ -88,6 +100,7 @@ decl_module! {
 		*/
 
 		/// Create a group owned by the current AccountId.
+		/// Usage: For name, use String::into_bytes();
 		fn create_group(origin, name: Vec<u8>, max_size: u32) -> Result {
 			let sender = ensure_signed(origin)?;
 
@@ -118,6 +131,7 @@ decl_module! {
 
 		/// Renaming a group by converting the String name into a byte array
 		/// Rule: only the owner is allowed to use this function.
+		/// Usage: For name, use String::into_bytes();
 		fn rename_group(origin, group_id: T::Hash, name: Vec<u8>) -> Result {
 			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
 			let mut group = Self::group(group_id);
@@ -149,10 +163,21 @@ decl_module! {
 
 /// Private methods
 impl<T: Trait> Module<T> {
+	// pub fn slot_duration() -> T::Moment {
+	// 	// we double the minimum block-period so each author can always propose within
+	// 	// the majority of their slot.
+	// 	<timestamp::Module<T>>::minimum_period().saturating_mul(2.into())
+	// }
+
 	// fn new_group(to: T::AccountId, kitty_id: T::Hash, group: Group<T::Hash, T::Balance>) -> Result {
 
 	// }
 }
+
+// impl timestamp::Trait for Group<T::AccountId, T::Hash> {
+// 	type Moment = u64;
+// 	type OnTimestampSet = ();
+// }
 
 // *****************************************************************************************************
 // Beware of tests
