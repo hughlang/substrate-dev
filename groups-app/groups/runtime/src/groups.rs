@@ -1,22 +1,22 @@
 /// A runtime module template with necessary imports
-
 /// For more guidance on Substrate modules, see the example module
 /// https://github.com/paritytech/substrate/blob/master/srml/example/src/lib.rs
 use parity_codec::{Encode, Decode};
-use runtime_primitives::traits::{As, Hash, Zero};
+use runtime_primitives::traits::{As, Hash};
 use support::{decl_module, decl_storage, decl_event, ensure, dispatch::Result, StorageMap, StorageValue};
 use system::ensure_signed;
-// use timestamp::{OnTimestampSet, Trait};
-// use timestamp::TimestampInherentData;
-// use inherents::{InherentDataProviders, ProvideInherentData};
-// use inherents::{RuntimeString, InherentData};
+use inherents::{RuntimeString};
+// use rstd::convert::TryInto;
+
+// use runtime_io::{with_storage, StorageOverlay, ChildrenStorageOverlay};
 
 #[cfg(not(feature = "std"))]
 use rstd::prelude::Vec;
 #[cfg(feature = "std")]
 use std::vec::Vec;
 
-const MAX_GROUP_SIZE: u32 = 8;
+
+pub const MAX_GROUP_SIZE: u32 = 8;
 
 /// The module's configuration trait.
 pub trait Trait: system::Trait + timestamp::Trait {
@@ -25,11 +25,11 @@ pub trait Trait: system::Trait + timestamp::Trait {
 
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub struct Group<AccountId, Hash> {
-    id: Hash,
-	owner: AccountId,
+pub struct Group<A, H> {
+    id: H,
+	owner: A,
 	name: Vec<u8>,
-	members: Vec<AccountId>,
+	members: Vec<A>,
 	/// Limit number of users who can join the group
 	max_size: u32,
 	timestamp: u64,
@@ -74,12 +74,6 @@ decl_module! {
 	/// The module declaration.
 	pub struct Module<T: Trait> for enum Call where origin: T::Origin {
 
-		pub fn get_time(origin) -> Result {
-			let _sender = ensure_signed(origin)?;
-			let _now = <timestamp::Module<T>>::get();
-			Ok(())
-		}
-
 		fn deposit_event<T>() = default;
 
 		/*
@@ -99,6 +93,12 @@ decl_module! {
 			– Submit vote
 		*/
 
+		fn default_group(origin) -> Result {
+			// let ts = Self::get_time();
+			// let name = format!("Group-{}", ts);
+			Self::create_group(origin, "New Group".as_bytes().to_vec(), MAX_GROUP_SIZE)
+		}
+
 		/// Create a group owned by the current AccountId.
 		/// Usage: For name, use String::into_bytes();
 		fn create_group(origin, name: Vec<u8>, max_size: u32) -> Result {
@@ -111,13 +111,16 @@ decl_module! {
 			let total_groups = Self::all_groups_count();
 			let new_groups_count = total_groups.checked_add(1).ok_or("Overflow adding a new group")?;
 
+			// FIXME: As conversion will be replaced by TryInto
+			// https://stackoverflow.com/questions/56081117/how-do-you-convert-between-substrate-specific-types-and-rust-primitive-types
+			let ts = Self::get_time();
 			let group = Group {
 				id: random_id,
 				owner: sender.clone(),
 				name: name,
 				members: Vec::new(),
 				max_size: max_size,
-				timestamp: 0,
+				timestamp: ts.as_(),
 			};
 			<Groups<T>>::insert(random_id, group);
 			<GroupOwner<T>>::insert(random_id, &sender);
@@ -163,6 +166,11 @@ decl_module! {
 
 /// Private methods
 impl<T: Trait> Module<T> {
+	pub fn get_time() -> T::Moment {
+		let now = <timestamp::Module<T>>::get();
+		now
+	}
+
 	// pub fn slot_duration() -> T::Moment {
 	// 	// we double the minimum block-period so each author can always propose within
 	// 	// the majority of their slot.
@@ -188,9 +196,9 @@ impl<T: Trait> Module<T> {
 mod tests {
 	use super::*;
 
-	use runtime_io::with_externalities;
+	use runtime_io::{with_externalities, TestExternalities};
 	use primitives::{H256, Blake2Hasher};
-	use support::{impl_outer_origin, assert_ok};
+	use support::{impl_outer_origin, assert_ok, assert_noop};
 	use runtime_primitives::{
 		BuildStorage,
 		traits::{BlakeTwo256, IdentityLookup},
@@ -198,15 +206,15 @@ mod tests {
 	};
 
 	impl_outer_origin! {
-		pub enum Origin for Test {}
+		pub enum Origin for GroupsTest {}
 	}
 
 	// For testing the module, we construct most of a mock runtime. This means
-	// first constructing a configuration type (`Test`) which `impl`s each of the
+	// first constructing a configuration type (`GroupsTest`) which `impl`s each of the
 	// configuration traits of modules we want to use.
 	#[derive(Clone, Eq, PartialEq)]
-	pub struct Test;
-	impl system::Trait for Test {
+	pub struct GroupsTest;
+	impl system::Trait for GroupsTest {
 		type Origin = Origin;
 		type Index = u64;
 		type BlockNumber = u64;
@@ -219,20 +227,35 @@ mod tests {
 		type Event = ();
 		type Log = DigestItem;
 	}
-	impl Trait for Test {
+	impl timestamp::Trait for GroupsTest {
+		type Moment = u64;
+		type OnTimestampSet = ();
+	}
+	impl Trait for GroupsTest {
 		type Event = ();
 	}
-	type GroupsModule = Module<Test>;
+	type GroupsModule = Module<GroupsTest>;
 
 	// This function basically just builds a genesis storage key/value store according to
 	// our desired mockup.
-	fn new_test_ext() -> runtime_io::TestExternalities<Blake2Hasher> {
-		system::GenesisConfig::<Test>::default().build_storage().unwrap().0.into()
+	fn build_ext() -> runtime_io::TestExternalities<Blake2Hasher> {
+		let mut t = system::GenesisConfig::<GroupsTest>::default().build_storage().unwrap().0;
+		// t.extend(balances::GenesisConfig::<GroupsTest>::default().build_storage().unwrap().0);
+		t.into()
 	}
 
 	#[test]
-	fn it_works_for_default_value() {
-		with_externalities(&mut new_test_ext(), || {
+	fn create_group_should_work() {
+		with_externalities(&mut build_ext(), || {
+			let data = "First Group".as_bytes().to_vec();
+			println!("data={:?}", data);
+            assert_ok!(GroupsModule::create_group(Origin::signed(10), data, 8));
+
+            // check that there is now 1 kitty in storage
+            assert_eq!(GroupsModule::all_groups_count(), 1);
+
+
+			assert!(true);
 			// Just a dummy test for the dummy funtion `do_something`
 			// calling the `do_something` function with a value 42
 			// assert_ok!(GroupsModule::do_something(Origin::signed(1), 42));

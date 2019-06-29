@@ -22,6 +22,7 @@ std = [
     'offchain-primitives/std',
     'substrate-module-template/std',
 ]
+
 [dependencies.aura]
 default_features = false
 git = 'https://github.com/paritytech/substrate.git'
