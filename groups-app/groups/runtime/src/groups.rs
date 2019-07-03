@@ -23,6 +23,14 @@ pub trait Trait: system::Trait + timestamp::Trait {
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
 
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "std", derive(Debug))]
+#[repr(u32)]
+pub enum JoinRule {
+	Any,
+	Request,
+}
+
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct Group<A, H> {
@@ -32,6 +40,7 @@ pub struct Group<A, H> {
 	members: Vec<A>,
 	/// Limit number of users who can join the group
 	max_size: u32,
+	join_rule: u32,
 	timestamp: u64,
 }
 
@@ -88,7 +97,6 @@ decl_module! {
 			– Remove member
 			– List members
 			– Verify member (groupId, accountId)
-			– Broadcast message?
 			– Request vote
 			– Submit vote
 		*/
@@ -110,7 +118,6 @@ decl_module! {
 
 			let total_groups = Self::all_groups_count();
 			let new_groups_count = total_groups.checked_add(1).ok_or("Overflow adding a new group")?;
-
 			// FIXME: As conversion will be replaced by TryInto
 			// https://stackoverflow.com/questions/56081117/how-do-you-convert-between-substrate-specific-types-and-rust-primitive-types
 			let ts = Self::get_time();
@@ -120,6 +127,7 @@ decl_module! {
 				name: name,
 				members: Vec::new(),
 				max_size: max_size,
+				join_rule: 0,
 				timestamp: ts.as_(),
 			};
 			<Groups<T>>::insert(random_id, group);
@@ -160,6 +168,30 @@ decl_module! {
 			Ok(())
 		}
 
+		/// TODO: Add optional invite code
+		fn join_group(origin, group_id: T::Hash) -> Result {
+			Ok(())
+		}
+
+		fn request_join_group(origin, group_id: T::Hash) -> Result {
+			Ok(())
+		}
+
+		fn leave_group(origin, group_id: T::Hash) -> Result {
+			Ok(())
+		}
+
+		fn accept_member(origin, group_id: T::Hash, member_id: T::AccountId) -> Result {
+			Ok(())
+		}
+
+		fn reject_member(origin, group_id: T::Hash, member_id: T::AccountId) -> Result {
+			Ok(())
+		}
+
+		fn verify_member(origin, group_id: T::Hash, member_id: T::AccountId) -> Result {
+			Ok(())
+		}
 
 	}
 }
@@ -188,10 +220,9 @@ impl<T: Trait> Module<T> {
 // }
 
 // *****************************************************************************************************
-// Beware of tests
+// Unit Tests!
 // *****************************************************************************************************
 
-/// tests for this module
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -248,19 +279,9 @@ mod tests {
 	fn create_group_should_work() {
 		with_externalities(&mut build_ext(), || {
 			let data = "First Group".as_bytes().to_vec();
-			println!("data={:?}", data);
             assert_ok!(GroupsModule::create_group(Origin::signed(10), data, 8));
-
-            // check that there is now 1 kitty in storage
             assert_eq!(GroupsModule::all_groups_count(), 1);
 
-
-			assert!(true);
-			// Just a dummy test for the dummy funtion `do_something`
-			// calling the `do_something` function with a value 42
-			// assert_ok!(GroupsModule::do_something(Origin::signed(1), 42));
-			// asserting that the stored value is equal to what we stored
-			// assert_eq!(GroupsModule::something(), Some(42));
 		});
 	}
 }
