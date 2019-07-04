@@ -14,6 +14,10 @@ use inherents::{RuntimeString};
 use rstd::prelude::Vec;
 #[cfg(feature = "std")]
 use std::vec::Vec;
+#[cfg(not(feature = "std"))]
+use core::str;
+#[cfg(feature = "std")]
+use std::str;
 
 
 pub const MAX_GROUP_SIZE: u32 = 8;
@@ -37,6 +41,7 @@ pub struct Group<A, H> {
     id: H,
 	owner: A,
 	name: Vec<u8>,
+	/// Vec of AccountIds
 	members: Vec<A>,
 	/// Limit number of users who can join the group
 	max_size: u32,
@@ -58,12 +63,22 @@ pub struct Group<A, H> {
 */
 
 decl_storage! {
-	trait Store for Module<T: Trait> as GroupsModule {
-		/// Groups is a mapping of group_id hash to the Group itself
+	// The Groups storage needs to follow model similar to SubstrateGroups example. In order to fetched
+	// owned groups later, additional arrays and maps make it possible to find the number of groups owned by an
+	// AccountId and lookup the Hash of a group based on the index values.
+	//
+	trait Store for Module<T: Trait> as Groups {
+
 		Groups get(group): map T::Hash => Group<T::AccountId, T::Hash>;
 		GroupOwner get(owner_of): map T::Hash => Option<T::AccountId>;
-		AllGroupsCount get(all_groups_count): u64;
 
+        // AllGroupsArray get(group_id): map u64 => T::Hash;
+		AllGroupsCount get(all_groups_count): u64;
+        // AllGroupsIndex get(index_of): map T::Hash => u64;
+
+        OwnedGroupsArray get(owned_group_by_index): map (T::AccountId, u64) => T::Hash;
+        OwnedGroupsCount get(owned_group_count): map T::AccountId => u64;
+        OwnedGroupsIndex get(owned_groups_index): map T::Hash => u64;
 
 		Nonce: u64;
 	}
@@ -85,22 +100,6 @@ decl_module! {
 
 		fn deposit_event<T>() = default;
 
-		/*
-			Use cases TODO:
-			– Create group
-			– Update group
-			– Remove group
-			– Request invite
-			– Create invite
-			– Accept invite
-			– Add member
-			– Remove member
-			– List members
-			– Verify member (groupId, accountId)
-			– Request vote
-			– Submit vote
-		*/
-
 		fn default_group(origin) -> Result {
 			// let ts = Self::get_time();
 			// let name = format!("Group-{}", ts);
@@ -118,6 +117,10 @@ decl_module! {
 
 			let total_groups = Self::all_groups_count();
 			let new_groups_count = total_groups.checked_add(1).ok_or("Overflow adding a new group")?;
+
+			let owned_group_count = Self::owned_group_count(&sender);
+			let new_owned_group_count = owned_group_count.checked_add(1).ok_or("Overflow adding a new group")?;
+
 			// FIXME: As conversion will be replaced by TryInto
 			// https://stackoverflow.com/questions/56081117/how-do-you-convert-between-substrate-specific-types-and-rust-primitive-types
 			let ts = Self::get_time();
@@ -134,8 +137,12 @@ decl_module! {
 			<GroupOwner<T>>::insert(random_id, &sender);
 			<AllGroupsCount<T>>::put(new_groups_count);
 
+			<OwnedGroupsArray<T>>::insert((sender.clone(), owned_group_count), random_id);
+			<OwnedGroupsCount<T>>::insert(&sender, new_owned_group_count);
+			<OwnedGroupsIndex<T>>::insert(random_id, owned_group_count);
+
 			<Nonce<T>>::mutate(|n| *n += 1);
-			// Self::deposit_event(RawEvent::CreatedGroup(sender, kitty_id, new_price));
+			// Self::deposit_event(RawEvent::CreatedGroup(sender, group_id, new_price));
 
 			Ok(())
 		}
@@ -170,6 +177,12 @@ decl_module! {
 
 		/// TODO: Add optional invite code
 		fn join_group(origin, group_id: T::Hash) -> Result {
+			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
+			let sender = ensure_signed(origin)?;
+
+			let group = Self::group(group_id);
+
+
 			Ok(())
 		}
 
@@ -202,16 +215,6 @@ impl<T: Trait> Module<T> {
 		let now = <timestamp::Module<T>>::get();
 		now
 	}
-
-	// pub fn slot_duration() -> T::Moment {
-	// 	// we double the minimum block-period so each author can always propose within
-	// 	// the majority of their slot.
-	// 	<timestamp::Module<T>>::minimum_period().saturating_mul(2.into())
-	// }
-
-	// fn new_group(to: T::AccountId, kitty_id: T::Hash, group: Group<T::Hash, T::Balance>) -> Result {
-
-	// }
 }
 
 // impl timestamp::Trait for Group<T::AccountId, T::Hash> {
@@ -265,7 +268,7 @@ mod tests {
 	impl Trait for GroupsTest {
 		type Event = ();
 	}
-	type GroupsModule = Module<GroupsTest>;
+	type Groups = Module<GroupsTest>;
 
 	// This function basically just builds a genesis storage key/value store according to
 	// our desired mockup.
@@ -275,13 +278,31 @@ mod tests {
 		t.into()
 	}
 
+	/// Create Group test objectives:
+	/// * Use the create_group method and verify ok
+	/// * Verify all_groups_count == 1
+	/// * Use the OwnedGroupsArray to get the Hash of the new Group
+	/// * Fetch the group using the Hash. Verify owner and name.
 	#[test]
 	fn create_group_should_work() {
 		with_externalities(&mut build_ext(), || {
 			let data = "First Group".as_bytes().to_vec();
-            assert_ok!(GroupsModule::create_group(Origin::signed(10), data, 8));
-            assert_eq!(GroupsModule::all_groups_count(), 1);
+			let owner = Origin::signed(10);
+			let owned_group_count = Groups::owned_group_count(10);
+            assert_ok!(Groups::create_group(owner, data, 8));
+            assert_eq!(Groups::all_groups_count(), 1);
+			assert_eq!(Groups::owned_group_count(10), 1);
 
+            let hash = Groups::owned_group_by_index((10, 0));
+			let group = Groups::group(hash);
+            assert_eq!(group.id, hash);
+
+			if let Ok(name) = str::from_utf8(&group.name) {
+				assert_eq!(name, "First Group");
+				// runtime_io::print(name);
+			} else {
+				assert!(false);
+			}
 		});
 	}
 }
