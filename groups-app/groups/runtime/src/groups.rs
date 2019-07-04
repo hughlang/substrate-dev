@@ -13,7 +13,7 @@ use parity_codec::{Encode, Decode};
 use runtime_primitives::traits::{As, Hash};
 use support::{decl_module, decl_storage, decl_event, ensure, dispatch::Result, StorageMap, StorageValue};
 use system::ensure_signed;
-use inherents::{RuntimeString};
+// use inherents::{RuntimeString};
 // use rstd::convert::TryInto;
 
 #[cfg(not(feature = "std"))]
@@ -25,16 +25,16 @@ use core::str;
 #[cfg(feature = "std")]
 use std::str;
 
-
+// TODO: Make these Configure values in genesis
 pub const MAX_GROUP_SIZE: u32 = 8;
-pub const MAX_NAME_SIZE: u64 = 40;
+pub const MAX_GROUPS_PER_OWNER: u64 = 5;
+pub const MAX_NAME_SIZE: usize = 40;
 
-/// The module's configuration trait.
 pub trait Trait: system::Trait + timestamp::Trait {
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Encode, Decode, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 #[repr(u32)]
 pub enum JoinRule {
@@ -45,8 +45,9 @@ pub enum JoinRule {
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct Group<A, H> {
+	/// Hash unique random id
     id: H,
-
+	/// Arbitrary field that can be used for human-readable name or foreign key in other system
 	name: Vec<u8>,
 	/// Vec of AccountIds
 	members: Vec<A>,
@@ -54,7 +55,7 @@ pub struct Group<A, H> {
 	min_size: u32,
 	/// Limit number of members in group
 	max_size: u32,
-	join_rule: u32,
+	allow_any: bool,
 	timestamp: u64,
 }
 
@@ -109,6 +110,7 @@ decl_module! {
 
 		fn deposit_event<T>() = default;
 
+		/// TBD: Is this needed?
 		fn default_group(origin) -> Result {
 			// let ts = Self::get_time();
 			// let name = format!("Group-{}", ts);
@@ -119,15 +121,20 @@ decl_module! {
 		/// Usage: For name, use String::into_bytes();
 		fn create_group(origin, name: Vec<u8>, max_size: u32) -> Result {
 			let sender = ensure_signed(origin)?;
+			ensure!(name.len() <= MAX_NAME_SIZE, "Name size too long");
 
             let nonce = <Nonce<T>>::get();
             let random_id = (<system::Module<T>>::random_seed(), &sender, nonce)
                 .using_encoded(<T as system::Trait>::Hashing::hash);
 
+	        ensure!(!<Groups<T>>::exists(random_id), "Group Id already exists");
+	        ensure!(!<GroupOwner<T>>::exists(random_id), "GroupOwner already exists");
+
 			let total_groups = Self::all_groups_count();
 			let new_groups_count = total_groups.checked_add(1).ok_or("Overflow adding a new group")?;
 
 			let owned_group_count = Self::owned_group_count(&sender);
+			ensure!(owned_group_count < MAX_GROUPS_PER_OWNER, "Groups per owner already at limit");
 			let new_owned_group_count = owned_group_count.checked_add(1).ok_or("Overflow adding a new group")?;
 
 			// FIXME: As conversion will be replaced by TryInto
@@ -137,9 +144,9 @@ decl_module! {
 				id: random_id,
 				name: name,
 				members: Vec::new(),
-				min_size: max_size,
+				min_size: 2,
 				max_size: max_size,
-				join_rule: 0,
+				allow_any: true,
 				timestamp: ts.as_(),
 			};
 			<Groups<T>>::insert(random_id, group);
@@ -161,6 +168,8 @@ decl_module! {
 		/// Usage: For name, use String::into_bytes();
 		fn rename_group(origin, group_id: T::Hash, name: Vec<u8>) -> Result {
 			let sender = ensure_signed(origin)?;
+			ensure!(name.len() <= MAX_NAME_SIZE, "Name size too long");
+
 			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
             let owner = Self::owner_of(group_id).ok_or("No owner for this group")?;
             ensure!(owner == sender, "You do not own this group");
@@ -171,7 +180,25 @@ decl_module! {
 			Ok(())
 		}
 
-		/// Remove group
+		/// This method updates the min_size and max_size for the specified group_id, but only
+		/// for the owner of the group.
+		fn update_group_size(origin, group_id: T::Hash, min_size: u32, max_size: u32) -> Result {
+			let sender = ensure_signed(origin)?;
+
+			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
+            let owner = Self::owner_of(group_id).ok_or("No owner for this group")?;
+            ensure!(owner == sender, "You do not own this group");
+			ensure!((min_size <= max_size) && (max_size <= MAX_GROUP_SIZE), "Group sizes are invalid");
+
+			let mut group = Self::group(group_id);
+			group.min_size = min_size;
+			group.max_size = max_size;
+
+			<Groups<T>>::insert(group.id, group);
+			Ok(())
+		}
+
+		/// Remove group and update all storage with new values
 		/// Rule: only owner can remove a group
 		fn remove_group(origin, group_id: T::Hash) -> Result {
 			let sender = ensure_signed(origin)?;
@@ -179,7 +206,22 @@ decl_module! {
             let owner = Self::owner_of(group_id).ok_or("No owner for this group")?;
             ensure!(owner == sender, "You do not own this group");
 
+			let total_groups = Self::all_groups_count();
+			let new_groups_count = total_groups.checked_sub(1).ok_or("Overflow subtracting a group")?;
+
+			let owned_group_count = Self::owned_group_count(&sender);
+			let new_owned_group_count = owned_group_count.checked_sub(1).ok_or("Overflow subtracting a group")?;
+			// Get the index position of the group, so it can be removed
+			let group_index = <OwnedGroupsIndex<T>>::get(group_id);
+
+
 			<Groups<T>>::remove(group_id);
+			<GroupOwner<T>>::remove(group_id);
+			<AllGroupsCount<T>>::put(new_groups_count);
+
+			<OwnedGroupsArray<T>>::remove((sender.clone(), group_index));
+			<OwnedGroupsCount<T>>::insert(&sender, new_owned_group_count);
+			<OwnedGroupsIndex<T>>::remove(group_id);
 
 			Ok(())
 		}
@@ -215,6 +257,11 @@ decl_module! {
 			Ok(())
 		}
 
+		/*
+		TODO
+		– admin remove group
+		–
+		*/
 	}
 }
 
