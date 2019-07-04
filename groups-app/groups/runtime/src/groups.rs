@@ -7,7 +7,8 @@
 /// Notes:
 /// * The choice to include a "name" field for Group may not be advisable because of blockchain bloat.
 ///   Mainly, it was done to test out Vec<u8> storage of string data and conversion back to string.
-/// * Still, the name field could also be used for foreign key reference to an external data store and
+/// * Still, the name field could also be used for foreign key reference to an external data store. However, the
+///   current implementation does not check for uniqueness of the name field.
 
 use parity_codec::{Encode, Decode};
 use runtime_primitives::traits::{As, Hash};
@@ -34,13 +35,13 @@ pub trait Trait: system::Trait + timestamp::Trait {
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
 
-#[derive(Encode, Decode, Clone, PartialEq)]
-#[cfg_attr(feature = "std", derive(Debug))]
-#[repr(u32)]
-pub enum JoinRule {
-	Any,
-	Request,
-}
+// #[derive(Encode, Decode, Clone, PartialEq)]
+// #[cfg_attr(feature = "std", derive(Debug))]
+// #[repr(u32)]
+// pub enum JoinRule {
+// 	Any,
+// 	Request,
+// }
 
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -51,29 +52,28 @@ pub struct Group<A, H> {
 	name: Vec<u8>,
 	/// Vec of AccountIds
 	members: Vec<A>,
-	/// Minimum number of members in group
-	min_size: u32,
-	/// Limit number of members in group
+	/// Maximum number of members in group
 	max_size: u32,
 	allow_any: bool,
 	timestamp: u64,
 }
 
-// #[derive(Encode, Decode, Default, Clone, PartialEq)]
-// #[cfg_attr(feature = "std", derive(Debug))]
-// pub struct Member<AccountId, Hash> {
+#[derive(Encode, Decode, Default, Clone, PartialEq)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub struct Invite<A, H> {
+	/// Hash unique random id
+    id: H,
+	/// The Group reference
+	group_id: H,
+	/// AccountId of the user who can join
+	user: A,
+	timestamp: u64,
+}
 
-// }
-
-/*
-	Storage TODO
-	– Invite
-	– Member
-	– Vote
-*/
 
 decl_storage! {
-	// The Groups storage needs to follow model similar to SubstrateGroups example. In order to fetched
+
+	// The Groups storage needs to follow model similar to SubstrateKitties example. In order to fetched
 	// owned groups later, additional arrays and maps make it possible to find the number of groups owned by an
 	// AccountId and lookup the Hash of a group based on the index values.
 	//
@@ -82,10 +82,7 @@ decl_storage! {
 		Groups get(group): map T::Hash => Group<T::AccountId, T::Hash>;
 		GroupOwner get(owner_of): map T::Hash => Option<T::AccountId>;
 
-        // AllGroupsArray get(group_id): map u64 => T::Hash;
 		AllGroupsCount get(all_groups_count): u64;
-        // AllGroupsIndex get(index_of): map T::Hash => u64;
-
         OwnedGroupsArray get(owned_group_by_index): map (T::AccountId, u64) => T::Hash;
         OwnedGroupsCount get(owned_group_count): map T::AccountId => u64;
         OwnedGroupsIndex get(owned_groups_index): map T::Hash => u64;
@@ -134,7 +131,7 @@ decl_module! {
 			let new_groups_count = total_groups.checked_add(1).ok_or("Overflow adding a new group")?;
 
 			let owned_group_count = Self::owned_group_count(&sender);
-			ensure!(owned_group_count < MAX_GROUPS_PER_OWNER, "Groups per owner already at limit");
+			ensure!(owned_group_count < MAX_GROUPS_PER_OWNER, "Groups limit reached for this Account");
 			let new_owned_group_count = owned_group_count.checked_add(1).ok_or("Overflow adding a new group")?;
 
 			// FIXME: As conversion will be replaced by TryInto
@@ -144,7 +141,6 @@ decl_module! {
 				id: random_id,
 				name: name,
 				members: Vec::new(),
-				min_size: 2,
 				max_size: max_size,
 				allow_any: true,
 				timestamp: ts.as_(),
@@ -180,18 +176,19 @@ decl_module! {
 			Ok(())
 		}
 
-		/// This method updates the min_size and max_size for the specified group_id, but only
+		/// This method updates the max_size for the specified group_id, but only
 		/// for the owner of the group.
-		fn update_group_size(origin, group_id: T::Hash, min_size: u32, max_size: u32) -> Result {
+		fn update_group_size(origin, group_id: T::Hash, max_size: u32) -> Result {
 			let sender = ensure_signed(origin)?;
 
 			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
             let owner = Self::owner_of(group_id).ok_or("No owner for this group")?;
             ensure!(owner == sender, "You do not own this group");
-			ensure!((min_size <= max_size) && (max_size <= MAX_GROUP_SIZE), "Group sizes are invalid");
+			ensure!(max_size <= MAX_GROUP_SIZE, "Group size too large");
 
 			let mut group = Self::group(group_id);
-			group.min_size = min_size;
+			ensure!(group.members.len() as u32 <= max_size, "Current member count exceeds new group size");
+
 			group.max_size = max_size;
 
 			<Groups<T>>::insert(group.id, group);
@@ -214,7 +211,6 @@ decl_module! {
 			// Get the index position of the group, so it can be removed
 			let group_index = <OwnedGroupsIndex<T>>::get(group_id);
 
-
 			<Groups<T>>::remove(group_id);
 			<GroupOwner<T>>::remove(group_id);
 			<AllGroupsCount<T>>::put(new_groups_count);
@@ -226,18 +222,39 @@ decl_module! {
 			Ok(())
 		}
 
-		/// TODO: Add optional invite code
+		/*
+			Rules:
+			– The owner can join their own group, but is not required to be a member of that group.
+			– If group.allow_any == true, any accountId can join the group up to the max_size of the group
+		*/
 		fn join_group(origin, group_id: T::Hash) -> Result {
-			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
 			let sender = ensure_signed(origin)?;
+			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
+			let mut group = Self::group(group_id);
+			ensure!((group.members.len() as u32) < group.max_size, "Group is already full");
 
-			let group = Self::group(group_id);
+            let owner = Self::owner_of(group_id).ok_or("No owner for this group")?;
+			if owner == sender {
+				ensure!(!group.members.contains(&owner), "Owner is already a member of this group");
+				group.members.push(owner);
+			} else {
+				if group.allow_any {
+					ensure!(!group.members.contains(&sender), "You are already a member of this group");
+					group.members.push(sender);
+				} else {
 
-
+				}
+			}
 			Ok(())
 		}
 
+		/*
+		This method allows a user to request to join a Group given its Hash group_id.
+
+		*/
 		fn request_join_group(origin, group_id: T::Hash) -> Result {
+
+
 			Ok(())
 		}
 
@@ -345,7 +362,6 @@ mod tests {
 		with_externalities(&mut build_ext(), || {
 			let data = "First Group".as_bytes().to_vec();
 			let owner = Origin::signed(10);
-			let owned_group_count = Groups::owned_group_count(10);
             assert_ok!(Groups::create_group(Origin::signed(10), data, 8));
             assert_eq!(Groups::all_groups_count(), 1);
 			assert_eq!(Groups::owned_group_count(10), 1);
@@ -356,7 +372,6 @@ mod tests {
 
 			if let Ok(name) = str::from_utf8(&group.name) {
 				assert_eq!(name, "First Group");
-				runtime_io::print(name); // doesn't print to CLI
 			} else {
 				assert!(false);
 			}
@@ -374,7 +389,6 @@ mod tests {
 			let data = "Test Group".as_bytes().to_vec();
 			let owner = Origin::signed(11);
 
-			let owned_group_count = Groups::owned_group_count(11);
             assert_ok!(Groups::create_group(Origin::signed(11), data, 8));
 			assert_eq!(Groups::owned_group_count(11), 1);
 
@@ -384,8 +398,8 @@ mod tests {
 			let group = Groups::group(hash);
 			if let Ok(name) = str::from_utf8(&group.name) {
 				assert_eq!(name, "Renamed Group");
-				runtime_io::print(name); // doesn't print to CLI
 			} else {
+				runtime_io::print("Could not read group name"); // doesn't print to CLI
 				assert!(false);
 			}
 
@@ -394,6 +408,33 @@ mod tests {
 		});
 	}
 
+	/*
+		Join Group test (happy path)
+		* The group.max_size will limit the number of AccountIds that can join the group
+		* The owner of a group is not a member by default (and should not be a fixed requirement) and can join
+		  the group IF owner AccountId does not exist in group.members
+		* For non-owners: If group.allow_any == true and AccountId is not already in group.members, add it.
+	*/
+	#[test]
+	fn join_group_should_work() {
+		with_externalities(&mut build_ext(), || {
+			// let data = "First Group".as_bytes().to_vec();
+			// let owner = Origin::signed(10);
+            // assert_ok!(Groups::create_group(Origin::signed(10), data, 8));
+            // assert_eq!(Groups::all_groups_count(), 1);
+			// assert_eq!(Groups::owned_group_count(10), 1);
+
+            // let hash = Groups::owned_group_by_index((10, 0));
+			// let group = Groups::group(hash);
+            // assert_eq!(group.id, hash);
+
+			// if let Ok(name) = str::from_utf8(&group.name) {
+			// 	assert_eq!(name, "First Group");
+			// } else {
+			// 	assert!(false);
+			// }
+		});
+	}
 
 
 }
