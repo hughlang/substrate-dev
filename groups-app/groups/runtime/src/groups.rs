@@ -1,14 +1,20 @@
-/// A runtime module template with necessary imports
-/// For more guidance on Substrate modules, see the example module
-/// https://github.com/paritytech/substrate/blob/master/srml/example/src/lib.rs
+/// The Groups module is designed for the most common use cases for managing and verifying *small* groups of users.
+/// By itself, it only provides a on-chain storage of group membership for a set of AccountIds. Arguably, this does
+/// not need to be stored on-chain since it is application-specific logic. However, in conjunction with other Substrate
+/// modules, the ability to verify group membership before execution of other app/storage logic is useful to provide
+/// auditable proof that group membership rules are not violated. Examples: multiplayer games, multiparty voting
+///
+/// Notes:
+/// * The choice to include a "name" field for Group may not be advisable because of blockchain bloat.
+///   Mainly, it was done to test out Vec<u8> storage of string data and conversion back to string.
+/// * Still, the name field could also be used for foreign key reference to an external data store and
+
 use parity_codec::{Encode, Decode};
 use runtime_primitives::traits::{As, Hash};
 use support::{decl_module, decl_storage, decl_event, ensure, dispatch::Result, StorageMap, StorageValue};
 use system::ensure_signed;
 use inherents::{RuntimeString};
 // use rstd::convert::TryInto;
-
-// use runtime_io::{with_storage, StorageOverlay, ChildrenStorageOverlay};
 
 #[cfg(not(feature = "std"))]
 use rstd::prelude::Vec;
@@ -21,6 +27,7 @@ use std::str;
 
 
 pub const MAX_GROUP_SIZE: u32 = 8;
+pub const MAX_NAME_SIZE: u64 = 40;
 
 /// The module's configuration trait.
 pub trait Trait: system::Trait + timestamp::Trait {
@@ -39,11 +46,13 @@ pub enum JoinRule {
 #[cfg_attr(feature = "std", derive(Debug))]
 pub struct Group<A, H> {
     id: H,
-	owner: A,
+
 	name: Vec<u8>,
 	/// Vec of AccountIds
 	members: Vec<A>,
-	/// Limit number of users who can join the group
+	/// Minimum number of members in group
+	min_size: u32,
+	/// Limit number of members in group
 	max_size: u32,
 	join_rule: u32,
 	timestamp: u64,
@@ -126,9 +135,9 @@ decl_module! {
 			let ts = Self::get_time();
 			let group = Group {
 				id: random_id,
-				owner: sender.clone(),
 				name: name,
 				members: Vec::new(),
+				min_size: max_size,
 				max_size: max_size,
 				join_rule: 0,
 				timestamp: ts.as_(),
@@ -151,25 +160,25 @@ decl_module! {
 		/// Rule: only the owner is allowed to use this function.
 		/// Usage: For name, use String::into_bytes();
 		fn rename_group(origin, group_id: T::Hash, name: Vec<u8>) -> Result {
-			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
-			let mut group = Self::group(group_id);
-
 			let sender = ensure_signed(origin)?;
-			ensure!(group.owner == sender, "You are not the owner of this group");
+			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
+            let owner = Self::owner_of(group_id).ok_or("No owner for this group")?;
+            ensure!(owner == sender, "You do not own this group");
+
+			let mut group = Self::group(group_id);
 			group.name = name;
 			<Groups<T>>::insert(group.id, group);
-
 			Ok(())
 		}
 
 		/// Remove group
 		/// Rule: only owner can remove a group
 		fn remove_group(origin, group_id: T::Hash) -> Result {
-			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
-			let group = Self::group(group_id);
 			let sender = ensure_signed(origin)?;
+			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
+            let owner = Self::owner_of(group_id).ok_or("No owner for this group")?;
+            ensure!(owner == sender, "You do not own this group");
 
-			ensure!(group.owner == sender, "You are not the owner of this group");
 			<Groups<T>>::remove(group_id);
 
 			Ok(())
@@ -282,14 +291,15 @@ mod tests {
 	/// * Use the create_group method and verify ok
 	/// * Verify all_groups_count == 1
 	/// * Use the OwnedGroupsArray to get the Hash of the new Group
-	/// * Fetch the group using the Hash. Verify owner and name.
+	/// * Fetch the group using the Hash. Verify group_id and name.
+	/// * Rename group and with wrong AccountId should be an error
 	#[test]
 	fn create_group_should_work() {
 		with_externalities(&mut build_ext(), || {
 			let data = "First Group".as_bytes().to_vec();
 			let owner = Origin::signed(10);
 			let owned_group_count = Groups::owned_group_count(10);
-            assert_ok!(Groups::create_group(owner, data, 8));
+            assert_ok!(Groups::create_group(Origin::signed(10), data, 8));
             assert_eq!(Groups::all_groups_count(), 1);
 			assert_eq!(Groups::owned_group_count(10), 1);
 
@@ -299,10 +309,44 @@ mod tests {
 
 			if let Ok(name) = str::from_utf8(&group.name) {
 				assert_eq!(name, "First Group");
-				// runtime_io::print(name);
+				runtime_io::print(name); // doesn't print to CLI
 			} else {
 				assert!(false);
 			}
 		});
 	}
+
+	/// Rename Group test objectives:
+	/// * First create_group and verify owned count is 1 and group_id Hash can be fetched
+	/// * Call rename_group with the correct owner and assert ok
+	/// * Load the group by hash and verify that name has changed.
+	/// * And finally, call rename_group with the wrong owner and expect error
+	#[test]
+	fn rename_owned_group_should_work() {
+		with_externalities(&mut build_ext(), || {
+			let data = "Test Group".as_bytes().to_vec();
+			let owner = Origin::signed(11);
+
+			let owned_group_count = Groups::owned_group_count(11);
+            assert_ok!(Groups::create_group(Origin::signed(11), data, 8));
+			assert_eq!(Groups::owned_group_count(11), 1);
+
+            let hash = Groups::owned_group_by_index((11, 0));
+			assert_ok!(Groups::rename_group(owner, hash, "Renamed Group".as_bytes().to_vec()));
+
+			let group = Groups::group(hash);
+			if let Ok(name) = str::from_utf8(&group.name) {
+				assert_eq!(name, "Renamed Group");
+				runtime_io::print(name); // doesn't print to CLI
+			} else {
+				assert!(false);
+			}
+
+			let data = "Invalid Group".as_bytes().to_vec();
+			assert_noop!(Groups::rename_group(Origin::signed(9), hash, data), "You do not own this group");
+		});
+	}
+
+
+
 }
