@@ -14,7 +14,6 @@ use parity_codec::{Encode, Decode};
 use runtime_primitives::traits::{As, Hash};
 use support::{decl_module, decl_storage, decl_event, ensure, dispatch::Result, StorageMap, StorageValue};
 use system::ensure_signed;
-// use inherents::{RuntimeString};
 // use rstd::convert::TryInto;
 
 #[cfg(not(feature = "std"))]
@@ -27,21 +26,13 @@ use core::str;
 use std::str;
 
 // TODO: Make these Configure values in genesis
-pub const MAX_GROUP_SIZE: u32 = 8;
-pub const MAX_GROUPS_PER_OWNER: u64 = 5;
+pub const MAX_GROUP_SIZE: u32 = 10;
+pub const MAX_GROUPS_PER_OWNER: u64 = 4;
 pub const MAX_NAME_SIZE: usize = 40;
 
 pub trait Trait: system::Trait + timestamp::Trait {
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
-
-// #[derive(Encode, Decode, Clone, PartialEq)]
-// #[cfg_attr(feature = "std", derive(Debug))]
-// #[repr(u32)]
-// pub enum JoinRule {
-// 	Any,
-// 	Request,
-// }
 
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
@@ -54,38 +45,26 @@ pub struct Group<A, H> {
 	members: Vec<A>,
 	/// Maximum number of members in group
 	max_size: u32,
-	allow_any: bool,
+	/// Creation time. TBD: why?
 	timestamp: u64,
 }
-
-#[derive(Encode, Decode, Default, Clone, PartialEq)]
-#[cfg_attr(feature = "std", derive(Debug))]
-pub struct Invite<A, H> {
-	/// Hash unique random id
-    id: H,
-	/// The Group reference
-	group_id: H,
-	/// AccountId of the user who can join
-	user: A,
-	timestamp: u64,
-}
-
 
 decl_storage! {
 
 	// The Groups storage needs to follow model similar to SubstrateKitties example. In order to fetched
 	// owned groups later, additional arrays and maps make it possible to find the number of groups owned by an
 	// AccountId and lookup the Hash of a group based on the index values.
-	//
 	trait Store for Module<T: Trait> as Groups {
 
 		Groups get(group): map T::Hash => Group<T::AccountId, T::Hash>;
 		GroupOwner get(owner_of): map T::Hash => Option<T::AccountId>;
-
 		AllGroupsCount get(all_groups_count): u64;
+
         OwnedGroupsArray get(owned_group_by_index): map (T::AccountId, u64) => T::Hash;
         OwnedGroupsCount get(owned_group_count): map T::AccountId => u64;
         OwnedGroupsIndex get(owned_groups_index): map T::Hash => u64;
+
+		GroupMemberAuth get(group_member_auth): map (T::Hash, T::AccountId) => T::Hash;
 
 		Nonce: u64;
 	}
@@ -106,13 +85,6 @@ decl_module! {
 	pub struct Module<T: Trait> for enum Call where origin: T::Origin {
 
 		fn deposit_event<T>() = default;
-
-		/// TBD: Is this needed?
-		fn default_group(origin) -> Result {
-			// let ts = Self::get_time();
-			// let name = format!("Group-{}", ts);
-			Self::create_group(origin, "New Group".as_bytes().to_vec(), MAX_GROUP_SIZE)
-		}
 
 		/// Create a group owned by the current AccountId.
 		/// Usage: For name, use String::into_bytes();
@@ -142,7 +114,6 @@ decl_module! {
 				name: name,
 				members: Vec::new(),
 				max_size: max_size,
-				allow_any: true,
 				timestamp: ts.as_(),
 			};
 			<Groups<T>>::insert(random_id, group);
@@ -154,6 +125,7 @@ decl_module! {
 			<OwnedGroupsIndex<T>>::insert(random_id, owned_group_count);
 
 			<Nonce<T>>::mutate(|n| *n += 1);
+
 			// Self::deposit_event(RawEvent::CreatedGroup(sender, group_id, new_price));
 
 			Ok(())
@@ -164,7 +136,7 @@ decl_module! {
 		/// Usage: For name, use String::into_bytes();
 		fn rename_group(origin, group_id: T::Hash, name: Vec<u8>) -> Result {
 			let sender = ensure_signed(origin)?;
-			ensure!(name.len() <= MAX_NAME_SIZE, "Name size too long");
+			ensure!(name.len() <= MAX_NAME_SIZE, "Name too long");
 
 			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
             let owner = Self::owner_of(group_id).ok_or("No owner for this group")?;
@@ -173,6 +145,9 @@ decl_module! {
 			let mut group = Self::group(group_id);
 			group.name = name;
 			<Groups<T>>::insert(group.id, group);
+
+			// Deposit event: Group renamed
+
 			Ok(())
 		}
 
@@ -192,6 +167,16 @@ decl_module! {
 			group.max_size = max_size;
 
 			<Groups<T>>::insert(group.id, group);
+
+			// Deposit event: Group size updated
+
+			Ok(())
+		}
+
+		/*
+		TBD: A method for duplicating a group so it can be used again with the same members. Why?
+		*/
+		fn clone_group(origin, group_id: T::Hash) -> Result {
 			Ok(())
 		}
 
@@ -219,15 +204,27 @@ decl_module! {
 			<OwnedGroupsCount<T>>::insert(&sender, new_owned_group_count);
 			<OwnedGroupsIndex<T>>::remove(group_id);
 
+			// Deposit event: Group removed by owner
+
 			Ok(())
 		}
 
 		/*
-			Rules:
-			– The owner can join their own group, but is not required to be a member of that group.
-			– If group.allow_any == true, any accountId can join the group up to the max_size of the group
+		The Join functionality is barebones and is not meant to hold much application-specific logic.
+		In some group-membership frameworks, there is a notion of an invite or a request to join. This may be
+		a future enhancement, but it seems more likely that the state information for this does not need to
+		be onchain. Instead, webapps that use this module should listen for events that can be used to store
+		state information in another datastore.
+
+		Also, one desired improvement is to record proof from an external oracle that verifies that the
+		join_group event can include an authorization hash that represents another system's proof that the
+		action is approved.
+
+		Rules:
+		– The owner can join their own group, but is not required to be a member of that group.
+		– Otherwise, any accountId can join the group up to the max_size of the group
 		*/
-		fn join_group(origin, group_id: T::Hash) -> Result {
+		fn join_group(origin, group_id: T::Hash, auth: Option<T::Hash>) -> Result {
 			let sender = ensure_signed(origin)?;
 			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
 			let mut group = Self::group(group_id);
@@ -238,47 +235,36 @@ decl_module! {
 				ensure!(!group.members.contains(&owner), "Owner is already a member of this group");
 				group.members.push(owner);
 			} else {
-				if group.allow_any {
-					ensure!(!group.members.contains(&sender), "You are already a member of this group");
-					group.members.push(sender);
-				} else {
+				ensure!(!group.members.contains(&sender), "You are already a member of this group");
 
+				// Placeholder functionality to store auth hashes
+				if let Some(auth) = auth {
+					<GroupMemberAuth<T>>::insert((group_id, sender.clone()), auth);
 				}
+				group.members.push(sender);
+
 			}
-			Ok(())
-		}
 
-		/*
-		This method allows a user to request to join a Group given its Hash group_id.
-
-		*/
-		fn request_join_group(origin, group_id: T::Hash) -> Result {
-
-
+			// Deposit event MemberJoinedGroup
 			Ok(())
 		}
 
 		fn leave_group(origin, group_id: T::Hash) -> Result {
+			let sender = ensure_signed(origin)?;
+			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
+			let mut group = Self::group(group_id);
+			ensure!(group.members.contains(&sender), "You are not a member of this group");
+
+			if let Some(index) = group.members.iter().position(|x| *x == sender) {
+				group.members.remove(index);
+			}
+
+			// Deposit event MemberLeftGroup()
+			// Deposit event MemberListChanged(group_id, count, max)
+
 			Ok(())
 		}
 
-		fn accept_member(origin, group_id: T::Hash, member_id: T::AccountId) -> Result {
-			Ok(())
-		}
-
-		fn reject_member(origin, group_id: T::Hash, member_id: T::AccountId) -> Result {
-			Ok(())
-		}
-
-		fn verify_member(origin, group_id: T::Hash, member_id: T::AccountId) -> Result {
-			Ok(())
-		}
-
-		/*
-		TODO
-		– admin remove group
-		–
-		*/
 	}
 }
 
@@ -289,11 +275,6 @@ impl<T: Trait> Module<T> {
 		now
 	}
 }
-
-// impl timestamp::Trait for Group<T::AccountId, T::Hash> {
-// 	type Moment = u64;
-// 	type OnTimestampSet = ();
-// }
 
 // *****************************************************************************************************
 // Unit Tests!
