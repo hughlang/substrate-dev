@@ -298,7 +298,7 @@ impl<T: Trait> Module<T> {
 mod tests {
 	use super::*;
 
-	use runtime_io::{with_externalities, TestExternalities};
+	use runtime_io::{with_externalities};
 	use primitives::{H256, Blake2Hasher};
 	use support::{impl_outer_origin, assert_ok, assert_noop};
 	use runtime_primitives::{
@@ -340,6 +340,9 @@ mod tests {
 
 	// This function basically just builds a genesis storage key/value store according to
 	// our desired mockup.
+	// TODO: _genesis_phantom_data: Default::default() can be removed later if using latest substrate fixes
+	// Error: missing field `_genesis_phantom_data` in initializer of `groups::GenesisConfig<groups::tests::GroupsTest>`
+	// See also: https://github.com/paritytech/substrate/pull/2913 and Issue #2219
 	fn build_ext() -> runtime_io::TestExternalities<Blake2Hasher> {
 		let mut t = system::GenesisConfig::<GroupsTest>::default().build_storage().unwrap().0;
 		t.extend(
@@ -347,6 +350,7 @@ mod tests {
 				max_group_size: 10,
 				max_groups_per_owner: 5,
 				max_name_size: 40,
+				_genesis_phantom_data: Default::default(),
 			}.build_storage().unwrap().0);
 		t.into()
 	}
