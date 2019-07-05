@@ -238,7 +238,7 @@ decl_module! {
 		}
 
 		/*
-		The Join functionality is barebones and is not meant to hold much application-specific logic.
+		The group membership functionality is barebones and is not meant to hold much application-specific logic.
 		In some group-membership frameworks, there is a notion of an invite or a request to join. This may be
 		a future enhancement, but it seems more likely that the state information for this should not be
 		on-chain. Instead, webapps that use this module should listen for events that can be used to store

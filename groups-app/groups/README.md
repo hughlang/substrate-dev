@@ -1,23 +1,34 @@
-# Groups: A Substrate runtime module for creating small groups where members can join or leave
+# Groups: A Substrate runtime module for creating and managing small groups
 
-## Groups
+The Groups module is designed for the most common use cases for managing and verifying *small* groups of users.
+By itself, it only provides a on-chain storage of group membership for a set of AccountIds. Arguably, this does
+not need to be stored on-chain since it is application-specific logic. However, in conjunction with other Substrate
+modules, the ability to verify group membership before execution of other app/storage logic is useful to provide
+auditable proof that group membership rules are not violated. Examples: multiplayer games, multiparty voting
 
-* A user can create a group through the UI by providing the name of the group and the max size. The result is a group_id hash that can be used to invite others to join the group.
-* The owner of a group can rename the group whenever they want.
-* The owner of a group can delete/remove the group whenever they want. Users who visit the group page or any related pages will see an error message. More specifically, when trying to load a group, the code will return an error message.
+## Features
 
-## Members
+### Create a group and edit it.
 
-The user interface should provide a way to browse and view groups that can be joined. The listing of groups is not supported through blockchain queries, so an offchain database should be used. When a group is created, the event information should be saved to a database. Given this premise, there is a notion of viewing a group and displaying it.
+Any user can create a group up to the configurable limit of `max_groups_per_owner`. In creating a group, the owner can provide a name String as a byte array and define the max size of the group, which is limited by the configurable `max_group_size` value. These limits help prevent excessive state bloat. In a gas-cost environment, the system would probably charge appropriately.
 
-On a group page, the user will have the following options:
+The owner can also edit the `name` and the `max_size` of the group. The name field can be used for either storing a human-readable string or a foreign key value for looking up the corresponding data in another datastore. This also has a configurable length limit called `max_name_size`.
 
-* Join the group (if no approval required)
-* Request to join the group
-* Leave the group
+### Group membership
 
+The module provides two kinds add/remove functions. Voluntary (opt-in by the user) and Involuntary (owner can add/remove users).
 
-# Future
+The group members functionality is barebones and is not meant to hold much application-specific logic.
+In some group-membership frameworks, there is a notion of an invite or a request to join. This may be
+a future enhancement, but it seems more likely that the state information for this should not be
+on-chain. Instead, webapps that use this module should listen for events that can be used to store
+state information in another datastore.
+
+### Events
+
+Please see the in-line comments in the `decl_event!` section of the `groups.rs` file to see the events that are triggered when specific functions are called and state changes have occured.
+
+### Future
 
 The following are some ideas for future improvements and enhancements.
 
@@ -27,9 +38,14 @@ The following are some ideas for future improvements and enhancements.
 * Clone existing group: Easily copy a group (and optionally for a new owner)
 * Demonstrate integration with other/future voting module libs.
 
+
+===================================================================================================
+
 # Developer Notes
 
-## Building
+Last tested with `rustc 1.37.0-nightly (24a9bcbb7 2019-07-04)`
+
+## Build
 
 Install Rust:
 
