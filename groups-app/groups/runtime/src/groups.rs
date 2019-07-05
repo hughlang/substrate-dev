@@ -11,10 +11,9 @@
 ///   current implementation does not check for uniqueness of the name field.
 
 use parity_codec::{Encode, Decode};
-use runtime_primitives::traits::{As, Hash};
+use runtime_primitives::traits::{Hash};
 use support::{decl_module, decl_storage, decl_event, ensure, dispatch::Result, StorageMap, StorageValue};
 use system::ensure_signed;
-// use rstd::convert::TryInto;
 
 #[cfg(not(feature = "std"))]
 use rstd::prelude::Vec;
@@ -40,8 +39,6 @@ pub struct Group<A, H> {
 	members: Vec<A>,
 	/// Maximum number of members in group
 	max_size: u32,
-	/// Creation time. TBD: why?
-	timestamp: u64,
 }
 
 decl_storage! {
@@ -61,8 +58,9 @@ decl_storage! {
 		GroupOwner get(owner_of): map T::Hash => Option<T::AccountId>;
 
 		// This is a generic counter of all groups created in the system.
-		// TODO: Make this more useful by creating a lookup mapping of index to Hash?
 		AllGroupsCount get(all_groups_count): u64;
+		// TODO: Make this more useful by creating a lookup mapping of index to Hash?
+		// This might be useful for iterating through all known groups, but
 
 		// These are the mappings that provide lookups for owned groups, given AccountId or Hash
         OwnedGroupsArray get(owned_group_by_index): map (T::AccountId, u64) => T::Hash;
@@ -76,13 +74,20 @@ decl_storage! {
 	}
 }
 
+
+/*
+The events declared here are meant to be used by an external event listener to record state information
+in an external datastore.
+*/
 decl_event!(
 	pub enum Event<T> where
 		<T as system::Trait>::AccountId,
         <T as system::Trait>::Hash
-		// <T as timestamp::Trait>::Timestamp,
 	{
+		// CreatedGroup should provide the AccountId and group_id Hash to get recorded in another system
 		CreatedGroup(AccountId, Hash),
+
+
 	}
 );
 
@@ -118,13 +123,12 @@ decl_module! {
 
 			// FIXME: As conversion will be replaced by TryInto
 			// https://stackoverflow.com/questions/56081117/how-do-you-convert-between-substrate-specific-types-and-rust-primitive-types
-			let ts = Self::get_time();
+			// let ts = Self::get_time();
 			let group = Group {
 				id: random_id,
 				name: name,
 				members: Vec::new(),
 				max_size: max_size,
-				timestamp: ts.as_(),
 			};
 			<Groups<T>>::insert(random_id, group);
 			<GroupOwner<T>>::insert(random_id, &sender);
@@ -136,7 +140,7 @@ decl_module! {
 
 			<Nonce<T>>::mutate(|n| *n += 1);
 
-			// Self::deposit_event(RawEvent::CreatedGroup(sender, group_id, new_price));
+			// Self::deposit_event(RawEvent::CreatedGroup(sender, group_id));
 
 			Ok(())
 		}
@@ -184,13 +188,6 @@ decl_module! {
 
 			// Deposit event: Group size updated
 
-			Ok(())
-		}
-
-		/*
-		TBD: A method for duplicating a group so it can be used again with the same members. Why?
-		*/
-		fn clone_group(origin, group_id: T::Hash) -> Result {
 			Ok(())
 		}
 
@@ -282,8 +279,9 @@ decl_module! {
 	}
 }
 
-/// Private methods
+/// Custom methods but public and private go here
 impl<T: Trait> Module<T> {
+	// Unused right now.
 	pub fn get_time() -> T::Moment {
 		let now = <timestamp::Module<T>>::get();
 		now
