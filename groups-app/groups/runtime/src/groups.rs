@@ -67,9 +67,6 @@ decl_storage! {
         OwnedGroupsCount get(owned_group_count): map T::AccountId => u64;
         OwnedGroupsIndex get(owned_groups_index): map T::Hash => u64;
 
-		// TBD: this is a placeholder
-		GroupMemberAuth get(group_member_auth): map (T::Hash, T::AccountId) => T::Hash;
-
 		Nonce: u64;
 	}
 }
@@ -85,11 +82,17 @@ decl_event!(
         <T as system::Trait>::Hash
 	{
 		// CreatedGroup should provide the AccountId and group_id Hash to get recorded in another system
-		CreatedGroup(AccountId, Hash, u32),
+		CreatedGroup(Hash, AccountId, u32),
 
 		GroupRenamed(Hash, Vec<u8>),
 
 		GroupSizeChanged(Hash, u32, u32),
+
+		GroupRemoved(Hash),
+
+		MemberJoinedGroup(Hash, AccountId, u32, u32),
+
+		MemberLeftGroup(Hash, AccountId, u32, u32),
 	}
 );
 
@@ -142,12 +145,11 @@ decl_module! {
 
 			<Nonce<T>>::mutate(|n| *n += 1);
 
-			Self::deposit_event(RawEvent::CreatedGroup(sender, group_id, max_size));
-
+			Self::deposit_event(RawEvent::CreatedGroup(group_id, sender, max_size));
 			Ok(())
 		}
 
-		/// Renaming a group by converting the String name into a byte array
+		/// Renaming a group by providing a byte array of the string value
 		/// Rule: only the owner is allowed to use this function.
 		/// Usage: For name, use String::into_bytes();
 		fn rename_group(origin, group_id: T::Hash, name: Vec<u8>) -> Result {
@@ -161,6 +163,8 @@ decl_module! {
             ensure!(owner == sender, "You do not own this group");
 
 			let mut group = Self::group(group_id);
+
+			// TODO: ensure unchanged?
 			group.name = name.clone();
 			<Groups<T>>::insert(group.id, group);
 
@@ -184,13 +188,11 @@ decl_module! {
 			let current_size = group.members.len() as u32;
 			ensure!(current_size <= max_size, "Current member count exceeds new group size");
 
+			// TODO: ensure unchanged?
 			group.max_size = max_size;
-
 			<Groups<T>>::insert(group.id, group);
 
 			Self::deposit_event(RawEvent::GroupSizeChanged(group_id, max_size, current_size));
-
-
 			Ok(())
 		}
 
@@ -218,8 +220,7 @@ decl_module! {
 			<OwnedGroupsCount<T>>::insert(&sender, new_owned_group_count);
 			<OwnedGroupsIndex<T>>::remove(group_id);
 
-			// Deposit event: Group removed by owner
-
+			Self::deposit_event(RawEvent::GroupRemoved(group_id));
 			Ok(())
 		}
 
@@ -238,7 +239,7 @@ decl_module! {
 		– The owner can join their own group, but is not required to be a member of that group.
 		– Otherwise, any accountId can join the group up to the max_size of the group
 		*/
-		fn join_group(origin, group_id: T::Hash, auth: Option<T::Hash>) -> Result {
+		fn join_group(origin, group_id: T::Hash) -> Result {
 			let sender = ensure_signed(origin)?;
 			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
 			let mut group = Self::group(group_id);
@@ -250,16 +251,11 @@ decl_module! {
 				group.members.push(owner);
 			} else {
 				ensure!(!group.members.contains(&sender), "You are already a member of this group");
-
-				// Placeholder functionality to store auth hashes.
-				if let Some(auth) = auth {
-					<GroupMemberAuth<T>>::insert((group_id, sender.clone()), auth);
-				}
-				group.members.push(sender);
-
+				group.members.push(sender.clone());
 			}
 
-			// Deposit event MemberJoinedGroup
+			let current_size = group.members.len() as u32;
+			Self::deposit_event(RawEvent::MemberJoinedGroup(group_id, sender, group.max_size, current_size));
 			Ok(())
 		}
 
@@ -273,12 +269,20 @@ decl_module! {
 				group.members.remove(index);
 			}
 
-			// Deposit event MemberLeftGroup()
-			// Deposit event MemberListChanged(group_id, count, max)
-
+			let current_size = group.members.len() as u32;
+			Self::deposit_event(RawEvent::MemberLeftGroup(group_id, sender, group.max_size, current_size));
 			Ok(())
 		}
 
+		fn remove_group_member(origin, group_id: T::Hash, user: T::AccountId) -> Result {
+			Ok(())
+		}
+
+		// This method is meant to be used for absolute verification that an AccountId is a member of
+		// the specified group. Currently, group membership is dynamic
+		fn verify_group_member(origin, group_id: T::Hash, user: T::AccountId) -> Result {
+			Ok(())
+		}
 	}
 }
 

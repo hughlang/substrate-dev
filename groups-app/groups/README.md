@@ -1,4 +1,4 @@
-# Groups: A Substrate runtime module for managing small permissioned groups
+# Groups: A Substrate runtime module for creating small groups where members can join or leave
 
 ## Groups
 
@@ -16,37 +16,16 @@ On a group page, the user will have the following options:
 * Request to join the group
 * Leave the group
 
-In addition, the owner of the group will have the ability to:
-
-* Admin accept member
-* Admin remove member
-
-## Votes
-
-The whole notion of having Groups recorded on a blockchain doesn't really make sense unless there is something worth recording. Usually, that means keeping permanent record of funds or transactions.
-
-
-			Use cases TODO:
-			– Create group
-			– Update group
-			– Remove group
-			– Request to join
-			– Accept member
-			– Add member
-			– Remove member
-			– List members
-			– Verify member (groupId, accountId)
 
 # Future
 
-The following are some ideas for future improvements.
+The following are some ideas for future improvements and enhancements.
 
 * Lock the current group and record the timestamp and group member AccountIds:
   * This would be useful for applications where the final roster of members needs to be immutable and verified.
+* Record snapshot of current group membership. Possibly just a hash of all member AccountIds sorted, along with other metadata.
 * Clone existing group: Easily copy a group (and optionally for a new owner)
-
-
-
+* Demonstrate integration with other/future voting module libs.
 
 # Developer Notes
 
