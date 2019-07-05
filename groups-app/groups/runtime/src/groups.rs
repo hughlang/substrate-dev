@@ -211,7 +211,7 @@ decl_module! {
 
 		/// Remove group and update all storage with new values
 		/// Rule: only owner can remove a group
-		fn remove_group(origin, group_id: T::Hash) -> Result {
+		fn owner_remove_group(origin, group_id: T::Hash) -> Result {
 			let sender = ensure_signed(origin)?;
 			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
             let owner = Self::owner_of(group_id).ok_or("No owner for this group")?;
@@ -297,7 +297,7 @@ impl<T: Trait> Module<T> {
 	fn add_member(group_id: T::Hash, user: T::AccountId) -> Result {
 		let mut group = Self::group(group_id);
 		ensure!((group.members.len() as u32) < group.max_size, "Group is already full");
-		ensure!(!group.members.contains(&user), "User is already a member of this group");
+		ensure!(!group.members.contains(&user), "Account is already a member of this group");
 		group.members.push(user.clone());
 
 		let max_size = group.max_size;
@@ -312,7 +312,7 @@ impl<T: Trait> Module<T> {
 	fn remove_member(group_id: T::Hash, user: T::AccountId) -> Result {
 		let mut group = Self::group(group_id);
 
-		ensure!(group.members.contains(&user), "You are not a member of this group");
+		ensure!(group.members.contains(&user), "Account is not a member of this group");
 		if let Some(index) = group.members.iter().position(|x| *x == user) {
 			group.members.remove(index);
 		}
@@ -395,7 +395,7 @@ mod tests {
 		let mut t = system::GenesisConfig::<GroupsTest>::default().build_storage().unwrap().0;
 		t.extend(
 			GenesisConfig::<GroupsTest> {
-				max_group_size: 10,
+				max_group_size: 12,
 				max_groups_per_owner: 5,
 				max_name_size: 40,
 				_genesis_phantom_data: Default::default(),
@@ -433,20 +433,21 @@ mod tests {
 	/// * First create_group and verify owned count is 1 and group_id Hash can be fetched
 	/// * Call rename_group with the correct owner and assert ok
 	/// * Load the group by hash and verify that name has changed.
-	/// * And finally, call rename_group with the wrong owner and expect error
+	/// * Update group size and verify change
+	/// * Remove group and verify owned_group_count is 0
 	#[test]
 	fn update_owned_group_should_work() {
 		with_externalities(&mut build_ext(), || {
 			let data = "Test Group".as_bytes().to_vec();
 			let owner = Origin::signed(11);
 
-            assert_ok!(Groups::create_group(Origin::signed(11), data, 8));
+            assert_ok!(Groups::create_group(owner.clone(), data, 8));
 			assert_eq!(Groups::owned_group_count(11), 1);
 
-            let hash = Groups::owned_group_by_index((11, 0));
-			assert_ok!(Groups::rename_group(owner, hash, "Renamed Group".as_bytes().to_vec()));
+            let group_id = Groups::owned_group_by_index((11, 0));
+			assert_ok!(Groups::rename_group(owner.clone(), group_id, "Renamed Group".as_bytes().to_vec()));
 
-			let group = Groups::group(hash);
+			let group = Groups::group(group_id);
 			if let Ok(name) = str::from_utf8(&group.name) {
 				assert_eq!(name, "Renamed Group");
 			} else {
@@ -455,20 +456,23 @@ mod tests {
 			}
 
 			let data = "Invalid Group".as_bytes().to_vec();
-			assert_noop!(Groups::rename_group(Origin::signed(9), hash, data), "You do not own this group");
+			assert_noop!(Groups::rename_group(Origin::signed(9), group_id, data), "You do not own this group");
 
-			// TODO: change group size
+			// Update group max_size
+			assert_ok!(Groups::update_group_size(owner.clone(), group_id, 12));
+			let group = Groups::group(group_id);
+			assert_eq!(group.max_size, 12);
 
-			// TODO: remove group
+			// Owner removes group
+			assert_ok!(Groups::owner_remove_group(owner.clone(), group_id));
+			assert_eq!(Groups::owned_group_count(11), 0);
 
 		});
 	}
 
 	/*
-		Join Group test (happy path)
-		* The group.max_size will limit the number of AccountIds that can join the group
-		* The owner of a group is not a member by default (and should not be a fixed requirement) and can join
-		  the group IF owner AccountId does not exist in group.members
+		Join Group tests: success path
+		* Comprehensive test of all ways of adding and removing members from group (voluntarily and involuntary)
 	*/
 	#[test]
 	fn join_and_leave_group_should_work() {
@@ -518,5 +522,38 @@ mod tests {
 		});
 	}
 
+	/*
+		Join Group tests: negative path
+		* Test all error state possibilities for add/remove group members functions
+	*/
+	#[test]
+	fn group_rules_should_err() {
+		with_externalities(&mut build_ext(), || {
+			// Create basic group with max_size of 4
+			let data = "Strict Group of 4".as_bytes().to_vec();
+			let owner = Origin::signed(20);
+            assert_ok!(Groups::create_group(owner.clone(), data, 4));
 
+			// Lookup group_id hash and verify
+            let group_id = Groups::owned_group_by_index((20, 0));
+			let group = Groups::group(group_id);
+            assert_eq!(group.id, group_id);
+
+			// Add 4 members: 21-24
+            assert_ok!(Groups::join_group(Origin::signed(21), group_id));
+            assert_ok!(Groups::join_group(Origin::signed(22), group_id));
+            assert_ok!(Groups::join_group(Origin::signed(23), group_id));
+            assert_ok!(Groups::join_group(Origin::signed(24), group_id));
+
+			// Try to exceed the max_size. Even the owner can't join.
+			assert_noop!(Groups::join_group(Origin::signed(20), group_id), "Group is already full");
+			// Try to leave group that you don't belong to.
+			assert_noop!(Groups::leave_group(Origin::signed(25), group_id), "Account is not a member of this group");
+			// Try to remove user not member of group
+            assert_noop!(Groups::owner_remove_member(owner.clone(), group_id, 26), "Account is not a member of this group");
+			// Non-owner tries to add user
+            assert_noop!(Groups::owner_add_member(Origin::signed(21), group_id, 27), "You do not own this group");
+
+		});
+	}
 }
