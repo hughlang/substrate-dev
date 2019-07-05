@@ -242,65 +242,48 @@ decl_module! {
 		on-chain. Instead, webapps that use this module should listen for events that can be used to store
 		state information in another datastore.
 
-		Also, one desired improvement is to record proof from an external oracle that verifies that the
-		join_group event can include an authorization hash that represents another system's proof that the
-		action is approved.
-
 		Rules:
 		– The owner can join their own group, but is not required to be a member of that group.
 		– Otherwise, any accountId can join the group up to the max_size of the group
 		*/
+
+		/// Method for use case where user voluntarily joins a group
 		fn join_group(origin, group_id: T::Hash) -> Result {
 			let sender = ensure_signed(origin)?;
 			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
-			let mut group = Self::group(group_id);
-			ensure!((group.members.len() as u32) < group.max_size, "Group is already full");
 
-            let owner = Self::owner_of(group_id).ok_or("No owner for this group")?;
-			if owner == sender {
-				ensure!(!group.members.contains(&owner), "Owner is already a member of this group");
-				group.members.push(owner);
-			} else {
-				ensure!(!group.members.contains(&sender), "You are already a member of this group");
-				group.members.push(sender.clone());
-			}
-
-			let current_size = group.members.len() as u32;
-			Self::deposit_event(RawEvent::MemberJoinedGroup(group_id, sender, group.max_size, current_size));
+			Self::add_member(group_id, sender)?;
 			Ok(())
 		}
 
+		/// Method for use case where user voluntarily leaves a group
 		fn leave_group(origin, group_id: T::Hash) -> Result {
 			let sender = ensure_signed(origin)?;
 			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
-			let mut group = Self::group(group_id);
-			ensure!(group.members.contains(&sender), "You are not a member of this group");
 
-			if let Some(index) = group.members.iter().position(|x| *x == sender) {
-				group.members.remove(index);
-			}
-
-			let current_size = group.members.len() as u32;
-			Self::deposit_event(RawEvent::MemberLeftGroup(group_id, sender, group.max_size, current_size));
+			Self::remove_member(group_id, sender)?;
 			Ok(())
 		}
 
-		fn remove_group_member(origin, group_id: T::Hash, user: T::AccountId) -> Result {
-			Ok(())
-		}
-
-		/// This method is meant to be used for absolute verification that an AccountId is a member of
-		/// the specified group. Currently, group membership is dynamic
-		fn verify_group_member(origin, group_id: T::Hash, user: T::AccountId) -> Result {
-			let _sender = ensure_signed(origin)?;
+		/// Method for use case where owner adds a group member
+		fn owner_add_member(origin, group_id: T::Hash, user: T::AccountId) -> Result {
+			let sender = ensure_signed(origin)?;
 			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
-			let group = Self::group(group_id);
-			// if group.members.contains(&user) {
-			// 	Self::deposit_event(RawEvent::VerifiedGroupMember(group_id, user));
-			// } else {
-			// 	Self::deposit_event(RawEvent::NotGroupMember(group_id, user));
-			// }
+            let owner = Self::owner_of(group_id).ok_or("No owner for this group")?;
+            ensure!(owner == sender, "You do not own this group");
 
+			Self::add_member(group_id, user)?;
+			Ok(())
+		}
+
+		/// Method for use case where owner removes a group member
+		fn owner_remove_member(origin, group_id: T::Hash, user: T::AccountId) -> Result {
+			let sender = ensure_signed(origin)?;
+			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
+            let owner = Self::owner_of(group_id).ok_or("No owner for this group")?;
+            ensure!(owner == sender, "You do not own this group");
+
+			Self::remove_member(group_id, user)?;
 			Ok(())
 		}
 	}
@@ -308,15 +291,42 @@ decl_module! {
 
 /// Custom methods but public and private go here
 impl<T: Trait> Module<T> {
-	// Unused right now.
-	pub fn get_time() -> T::Moment {
-		let now = <timestamp::Module<T>>::get();
-		now
+	// Private method called by: join_group() and owner_add_member()
+	fn add_member(group_id: T::Hash, user: T::AccountId) -> Result {
+		let mut group = Self::group(group_id);
+		ensure!((group.members.len() as u32) < group.max_size, "Group is already full");
+		ensure!(!group.members.contains(&user), "User is already a member of this group");
+		group.members.push(user.clone());
+
+		let current_size = group.members.len() as u32;
+		Self::deposit_event(RawEvent::MemberJoinedGroup(group_id, user, group.max_size, current_size));
+		Ok(())
 	}
 
+	// Private method called by: leave_group() and owner_remove_member()
+	fn remove_member(group_id: T::Hash, user: T::AccountId) -> Result {
+		let mut group = Self::group(group_id);
+
+		ensure!(group.members.contains(&user), "You are not a member of this group");
+		if let Some(index) = group.members.iter().position(|x| *x == user) {
+			group.members.remove(index);
+		}
+
+		let current_size = group.members.len() as u32;
+		Self::deposit_event(RawEvent::MemberLeftGroup(group_id, user, group.max_size, current_size));
+		Ok(())
+	}
+
+	/// Helper method that can be used from UI code to verify member?
 	pub fn is_group_member(group_id: T::Hash, user: T::AccountId) -> bool {
 		let group = Self::group(group_id);
 		group.members.contains(&user)
+	}
+
+	// Unused right now. Still considering timestamps for some record-keeping
+	pub fn get_time() -> T::Moment {
+		let now = <timestamp::Module<T>>::get();
+		now
 	}
 }
 
