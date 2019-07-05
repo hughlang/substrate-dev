@@ -85,9 +85,11 @@ decl_event!(
         <T as system::Trait>::Hash
 	{
 		// CreatedGroup should provide the AccountId and group_id Hash to get recorded in another system
-		CreatedGroup(AccountId, Hash),
+		CreatedGroup(AccountId, Hash, u32),
 
+		GroupRenamed(Hash, Vec<u8>),
 
+		GroupSizeChanged(Hash, u32, u32),
 	}
 );
 
@@ -106,11 +108,11 @@ decl_module! {
 			ensure!(name.len() <= max_name_size, "Name is too long");
 
             let nonce = <Nonce<T>>::get();
-            let random_id = (<system::Module<T>>::random_seed(), &sender, nonce)
+            let group_id = (<system::Module<T>>::random_seed(), &sender, nonce)
                 .using_encoded(<T as system::Trait>::Hashing::hash);
 
-	        ensure!(!<Groups<T>>::exists(random_id), "Group Id already exists");
-	        ensure!(!<GroupOwner<T>>::exists(random_id), "GroupOwner already exists");
+	        ensure!(!<Groups<T>>::exists(group_id), "Group Id already exists");
+	        ensure!(!<GroupOwner<T>>::exists(group_id), "GroupOwner already exists");
 
 			let total_groups = Self::all_groups_count();
 			let new_groups_count = total_groups.checked_add(1).ok_or("Overflow adding a new group")?;
@@ -125,22 +127,22 @@ decl_module! {
 			// https://stackoverflow.com/questions/56081117/how-do-you-convert-between-substrate-specific-types-and-rust-primitive-types
 			// let ts = Self::get_time();
 			let group = Group {
-				id: random_id,
+				id: group_id,
 				name: name,
 				members: Vec::new(),
 				max_size: max_size,
 			};
-			<Groups<T>>::insert(random_id, group);
-			<GroupOwner<T>>::insert(random_id, &sender);
+			<Groups<T>>::insert(group_id, group);
+			<GroupOwner<T>>::insert(group_id, &sender);
 			<AllGroupsCount<T>>::put(new_groups_count);
 
-			<OwnedGroupsArray<T>>::insert((sender.clone(), owned_group_count), random_id);
+			<OwnedGroupsArray<T>>::insert((sender.clone(), owned_group_count), group_id);
 			<OwnedGroupsCount<T>>::insert(&sender, new_owned_group_count);
-			<OwnedGroupsIndex<T>>::insert(random_id, owned_group_count);
+			<OwnedGroupsIndex<T>>::insert(group_id, owned_group_count);
 
 			<Nonce<T>>::mutate(|n| *n += 1);
 
-			// Self::deposit_event(RawEvent::CreatedGroup(sender, group_id));
+			Self::deposit_event(RawEvent::CreatedGroup(sender, group_id, max_size));
 
 			Ok(())
 		}
@@ -159,11 +161,10 @@ decl_module! {
             ensure!(owner == sender, "You do not own this group");
 
 			let mut group = Self::group(group_id);
-			group.name = name;
+			group.name = name.clone();
 			<Groups<T>>::insert(group.id, group);
 
-			// Deposit event: Group renamed
-
+			Self::deposit_event(RawEvent::GroupRenamed(group_id, name));
 			Ok(())
 		}
 
@@ -180,13 +181,15 @@ decl_module! {
 			ensure!(max_size <= max_group_size, "Group size too large");
 
 			let mut group = Self::group(group_id);
-			ensure!(group.members.len() as u32 <= max_size, "Current member count exceeds new group size");
+			let current_size = group.members.len() as u32;
+			ensure!(current_size <= max_size, "Current member count exceeds new group size");
 
 			group.max_size = max_size;
 
 			<Groups<T>>::insert(group.id, group);
 
-			// Deposit event: Group size updated
+			Self::deposit_event(RawEvent::GroupSizeChanged(group_id, max_size, current_size));
+
 
 			Ok(())
 		}
