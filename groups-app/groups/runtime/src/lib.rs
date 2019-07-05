@@ -212,7 +212,7 @@ construct_runtime!(
 		Indices: indices,
 		Balances: balances,
 		Sudo: sudo,
-		GroupsModule: groups::{Module, Call, Storage, Event<T>},
+		Groups: groups::{Module, Call, Storage, Event<T>, Config<T>},
 	}
 );
 

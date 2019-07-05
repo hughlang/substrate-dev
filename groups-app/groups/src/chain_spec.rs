@@ -1,7 +1,7 @@
 use primitives::{ed25519, sr25519, Pair};
 use groups_runtime::{
 	AccountId, GenesisConfig, ConsensusConfig, TimestampConfig, BalancesConfig,
-	SudoConfig, IndicesConfig,
+	SudoConfig, IndicesConfig, GroupsConfig,
 };
 use substrate_service;
 
@@ -114,6 +114,11 @@ fn testnet_genesis(initial_authorities: Vec<AuthorityId>, endowed_accounts: Vec<
 		}),
 		sudo: Some(SudoConfig {
 			key: root_key,
+		}),
+		groups: Some(GroupsConfig {
+			max_group_size: 10,
+			max_groups_per_owner: 5,
+			max_name_size: 40,
 		}),
 	}
 }

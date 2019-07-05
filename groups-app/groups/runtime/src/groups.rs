@@ -25,11 +25,6 @@ use core::str;
 #[cfg(feature = "std")]
 use std::str;
 
-// TODO: Make these Configure values in genesis
-pub const MAX_GROUP_SIZE: u32 = 10;
-pub const MAX_GROUPS_PER_OWNER: u64 = 4;
-pub const MAX_NAME_SIZE: usize = 40;
-
 pub trait Trait: system::Trait + timestamp::Trait {
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
@@ -55,15 +50,26 @@ decl_storage! {
 	// owned groups later, additional arrays and maps make it possible to find the number of groups owned by an
 	// AccountId and lookup the Hash of a group based on the index values.
 	trait Store for Module<T: Trait> as Groups {
+		// These are the config values that match the values in the testnet_genesis in chain_spec.rs
+		// For unit tests, these also have to be added to the GenesisConfig
+		MaxGroupSize get(max_group_size) config(): Option<u32>;
+		MaxGroupsPerOwner get(max_groups_per_owner) config(): Option<u64>;
+		MaxNameSize get(max_name_size) config(): Option<usize>;
 
+		// These are the primary storage vars for storing the Group struct and recording ownership of a Group
 		Groups get(group): map T::Hash => Group<T::AccountId, T::Hash>;
 		GroupOwner get(owner_of): map T::Hash => Option<T::AccountId>;
+
+		// This is a generic counter of all groups created in the system.
+		// TODO: Make this more useful by creating a lookup mapping of index to Hash?
 		AllGroupsCount get(all_groups_count): u64;
 
+		// These are the mappings that provide lookups for owned groups, given AccountId or Hash
         OwnedGroupsArray get(owned_group_by_index): map (T::AccountId, u64) => T::Hash;
         OwnedGroupsCount get(owned_group_count): map T::AccountId => u64;
         OwnedGroupsIndex get(owned_groups_index): map T::Hash => u64;
 
+		// TBD: this is a placeholder
 		GroupMemberAuth get(group_member_auth): map (T::Hash, T::AccountId) => T::Hash;
 
 		Nonce: u64;
@@ -90,7 +96,9 @@ decl_module! {
 		/// Usage: For name, use String::into_bytes();
 		fn create_group(origin, name: Vec<u8>, max_size: u32) -> Result {
 			let sender = ensure_signed(origin)?;
-			ensure!(name.len() <= MAX_NAME_SIZE, "Name size too long");
+
+			let max_name_size = Self::max_name_size().ok_or("Config max_name_size not set")?;
+			ensure!(name.len() <= max_name_size, "Name is too long");
 
             let nonce = <Nonce<T>>::get();
             let random_id = (<system::Module<T>>::random_seed(), &sender, nonce)
@@ -103,8 +111,10 @@ decl_module! {
 			let new_groups_count = total_groups.checked_add(1).ok_or("Overflow adding a new group")?;
 
 			let owned_group_count = Self::owned_group_count(&sender);
-			ensure!(owned_group_count < MAX_GROUPS_PER_OWNER, "Groups limit reached for this Account");
 			let new_owned_group_count = owned_group_count.checked_add(1).ok_or("Overflow adding a new group")?;
+
+			let max_groups_per_owner = Self::max_groups_per_owner().ok_or("Config max_groups_per_owner not set")?;
+			ensure!(owned_group_count < max_groups_per_owner, "Groups limit reached for this Account");
 
 			// FIXME: As conversion will be replaced by TryInto
 			// https://stackoverflow.com/questions/56081117/how-do-you-convert-between-substrate-specific-types-and-rust-primitive-types
@@ -136,7 +146,9 @@ decl_module! {
 		/// Usage: For name, use String::into_bytes();
 		fn rename_group(origin, group_id: T::Hash, name: Vec<u8>) -> Result {
 			let sender = ensure_signed(origin)?;
-			ensure!(name.len() <= MAX_NAME_SIZE, "Name too long");
+
+			let max_name_size = Self::max_name_size().ok_or("Config max_name_size not set")?;
+			ensure!(name.len() <= max_name_size, "Name is too long");
 
 			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
             let owner = Self::owner_of(group_id).ok_or("No owner for this group")?;
@@ -159,7 +171,9 @@ decl_module! {
 			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
             let owner = Self::owner_of(group_id).ok_or("No owner for this group")?;
             ensure!(owner == sender, "You do not own this group");
-			ensure!(max_size <= MAX_GROUP_SIZE, "Group size too large");
+
+			let max_group_size = Self::max_group_size().ok_or("Config max_group_size not set")?;
+			ensure!(max_size <= max_group_size, "Group size too large");
 
 			let mut group = Self::group(group_id);
 			ensure!(group.members.len() as u32 <= max_size, "Current member count exceeds new group size");
@@ -212,8 +226,8 @@ decl_module! {
 		/*
 		The Join functionality is barebones and is not meant to hold much application-specific logic.
 		In some group-membership frameworks, there is a notion of an invite or a request to join. This may be
-		a future enhancement, but it seems more likely that the state information for this does not need to
-		be onchain. Instead, webapps that use this module should listen for events that can be used to store
+		a future enhancement, but it seems more likely that the state information for this should not be
+		on-chain. Instead, webapps that use this module should listen for events that can be used to store
 		state information in another datastore.
 
 		Also, one desired improvement is to record proof from an external oracle that verifies that the
@@ -237,7 +251,7 @@ decl_module! {
 			} else {
 				ensure!(!group.members.contains(&sender), "You are already a member of this group");
 
-				// Placeholder functionality to store auth hashes
+				// Placeholder functionality to store auth hashes.
 				if let Some(auth) = auth {
 					<GroupMemberAuth<T>>::insert((group_id, sender.clone()), auth);
 				}
@@ -328,7 +342,12 @@ mod tests {
 	// our desired mockup.
 	fn build_ext() -> runtime_io::TestExternalities<Blake2Hasher> {
 		let mut t = system::GenesisConfig::<GroupsTest>::default().build_storage().unwrap().0;
-		// t.extend(balances::GenesisConfig::<GroupsTest>::default().build_storage().unwrap().0);
+		t.extend(
+			GenesisConfig::<GroupsTest> {
+				max_group_size: 10,
+				max_groups_per_owner: 5,
+				max_name_size: 40,
+			}.build_storage().unwrap().0);
 		t.into()
 	}
 
