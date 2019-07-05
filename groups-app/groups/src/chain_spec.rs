@@ -108,6 +108,11 @@ fn testnet_genesis(
             vesting: vec![],
         }),
         sudo: Some(SudoConfig { key: root_key }),
-        groups: Some(GroupsConfig { max_group_size: 10, max_groups_per_owner: 5, max_name_size: 40 }),
+        groups: Some(GroupsConfig {
+            max_group_size: 10,
+            max_groups_per_owner: 5,
+            max_name_size: 40,
+            _genesis_phantom_data: Default::default(),
+        }),
     }
 }
