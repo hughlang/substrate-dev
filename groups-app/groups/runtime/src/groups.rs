@@ -15,6 +15,8 @@ use runtime_primitives::traits::{Hash};
 use support::{decl_module, decl_storage, decl_event, ensure, dispatch::Result, StorageMap, StorageValue};
 use system::ensure_signed;
 
+// use runtime_io::{with_storage, StorageOverlay, ChildrenStorageOverlay};
+
 #[cfg(not(feature = "std"))]
 use rstd::prelude::Vec;
 #[cfg(feature = "std")]
@@ -289,7 +291,7 @@ decl_module! {
 	}
 }
 
-/// Custom methods but public and private go here
+/// Custom methods – public and private
 impl<T: Trait> Module<T> {
 	// Private method called by: join_group() and owner_add_member()
 	fn add_member(group_id: T::Hash, user: T::AccountId) -> Result {
@@ -298,8 +300,11 @@ impl<T: Trait> Module<T> {
 		ensure!(!group.members.contains(&user), "User is already a member of this group");
 		group.members.push(user.clone());
 
+		let max_size = group.max_size;
 		let current_size = group.members.len() as u32;
-		Self::deposit_event(RawEvent::MemberJoinedGroup(group_id, user, group.max_size, current_size));
+		<Groups<T>>::insert(group_id, group);
+
+		Self::deposit_event(RawEvent::MemberJoinedGroup(group_id, user, max_size, current_size));
 		Ok(())
 	}
 
@@ -312,12 +317,15 @@ impl<T: Trait> Module<T> {
 			group.members.remove(index);
 		}
 
+		let max_size = group.max_size;
 		let current_size = group.members.len() as u32;
-		Self::deposit_event(RawEvent::MemberLeftGroup(group_id, user, group.max_size, current_size));
+		<Groups<T>>::insert(group_id, group);
+
+		Self::deposit_event(RawEvent::MemberLeftGroup(group_id, user, max_size, current_size));
 		Ok(())
 	}
 
-	/// Helper method that can be used from UI code to verify member?
+	/// Helper method that can be used from UI code to verify member.
 	pub fn is_group_member(group_id: T::Hash, user: T::AccountId) -> bool {
 		let group = Self::group(group_id);
 		group.members.contains(&user)
@@ -405,7 +413,6 @@ mod tests {
 	fn create_group_should_work() {
 		with_externalities(&mut build_ext(), || {
 			let data = "First Group".as_bytes().to_vec();
-			let owner = Origin::signed(10);
             assert_ok!(Groups::create_group(Origin::signed(10), data, 8));
             assert_eq!(Groups::all_groups_count(), 1);
 			assert_eq!(Groups::owned_group_count(10), 1);
@@ -422,13 +429,13 @@ mod tests {
 		});
 	}
 
-	/// Rename Group test objectives:
+	/// Update Group test objectives:
 	/// * First create_group and verify owned count is 1 and group_id Hash can be fetched
 	/// * Call rename_group with the correct owner and assert ok
 	/// * Load the group by hash and verify that name has changed.
 	/// * And finally, call rename_group with the wrong owner and expect error
 	#[test]
-	fn rename_owned_group_should_work() {
+	fn update_owned_group_should_work() {
 		with_externalities(&mut build_ext(), || {
 			let data = "Test Group".as_bytes().to_vec();
 			let owner = Origin::signed(11);
@@ -449,6 +456,11 @@ mod tests {
 
 			let data = "Invalid Group".as_bytes().to_vec();
 			assert_noop!(Groups::rename_group(Origin::signed(9), hash, data), "You do not own this group");
+
+			// TODO: change group size
+
+			// TODO: remove group
+
 		});
 	}
 
@@ -457,26 +469,52 @@ mod tests {
 		* The group.max_size will limit the number of AccountIds that can join the group
 		* The owner of a group is not a member by default (and should not be a fixed requirement) and can join
 		  the group IF owner AccountId does not exist in group.members
-		* For non-owners: If group.allow_any == true and AccountId is not already in group.members, add it.
 	*/
 	#[test]
-	fn join_group_should_work() {
+	fn join_and_leave_group_should_work() {
 		with_externalities(&mut build_ext(), || {
-			// let data = "First Group".as_bytes().to_vec();
-			// let owner = Origin::signed(10);
-            // assert_ok!(Groups::create_group(Origin::signed(10), data, 8));
-            // assert_eq!(Groups::all_groups_count(), 1);
-			// assert_eq!(Groups::owned_group_count(10), 1);
+			// Create basic group with max_size of 4
+			let data = "Group of 4".as_bytes().to_vec();
+			let owner = Origin::signed(20);
+            assert_ok!(Groups::create_group(owner.clone(), data, 4));
 
-            // let hash = Groups::owned_group_by_index((10, 0));
-			// let group = Groups::group(hash);
-            // assert_eq!(group.id, hash);
+			// Lookup group_id hash and verify
+            let group_id = Groups::owned_group_by_index((20, 0));
+			let group = Groups::group(group_id);
+            assert_eq!(group.id, group_id);
 
-			// if let Ok(name) = str::from_utf8(&group.name) {
-			// 	assert_eq!(name, "First Group");
-			// } else {
-			// 	assert!(false);
-			// }
+			// Add 4 members: 21-24
+            assert_ok!(Groups::join_group(Origin::signed(21), group_id));
+            assert_ok!(Groups::join_group(Origin::signed(22), group_id));
+            assert_ok!(Groups::join_group(Origin::signed(23), group_id));
+            assert_ok!(Groups::join_group(Origin::signed(24), group_id));
+
+			// Now verify group members count and membership
+			let group = Groups::group(group_id);
+            assert_eq!(group.members.len(), 4);
+			assert!(Groups::is_group_member(group_id, 21));
+			assert!(Groups::is_group_member(group_id, 22));
+			assert!(Groups::is_group_member(group_id, 23));
+			assert!(Groups::is_group_member(group_id, 24));
+
+			// 24 leaves group. Verify member count and not a member
+            assert_ok!(Groups::leave_group(Origin::signed(24), group_id));
+			let group = Groups::group(group_id);
+            assert_eq!(group.members.len(), 3);
+			assert!(!Groups::is_group_member(group_id, 24));
+
+			// Group owner adds 25 to group.
+            assert_ok!(Groups::owner_add_member(owner.clone(), group_id, 25));
+			let group = Groups::group(group_id);
+            assert_eq!(group.members.len(), 4);
+			assert!(Groups::is_group_member(group_id, 25));
+
+			// Group owner removes 21 from group.
+            assert_ok!(Groups::owner_remove_member(owner.clone(), group_id, 21));
+			let group = Groups::group(group_id);
+            assert_eq!(group.members.len(), 3);
+			assert!(!Groups::is_group_member(group_id, 21));
+
 		});
 	}
 
