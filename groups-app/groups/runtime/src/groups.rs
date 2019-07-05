@@ -8,7 +8,7 @@
 /// * The choice to include a "name" field for Group may not be advisable because of blockchain bloat.
 ///   Mainly, it was done to test out Vec<u8> storage of string data and conversion back to string.
 /// * Still, the name field could also be used for foreign key reference to an external data store. However, the
-///   current implementation does not check for uniqueness of the name field.
+///   current implementation does not check for uniqueness of the name field, which is out of scope.
 
 use parity_codec::{Encode, Decode};
 use runtime_primitives::traits::{Hash};
@@ -33,11 +33,15 @@ pub trait Trait: system::Trait + timestamp::Trait {
 pub struct Group<A, H> {
 	/// Hash unique random id
     id: H,
-	/// Arbitrary field that can be used for human-readable name or foreign key in other system
+	/// Arbitrary field that can be used for human-readable name or foreign key in other system.
+	/// The length of this field is limited by the max_name_size Config.
 	name: Vec<u8>,
-	/// Vec of AccountIds
+	/// Vec of AccountIds, where the owner is not automatically added and can just be an external actor
+	/// The size of this list is limited by the max_group_size Config.
 	members: Vec<A>,
-	/// Maximum number of members in group
+	/// Maximum number of members in group. Note that there is no min size of group since that is
+	/// likely a business rule that can be handled in the dapp or external systems.
+	/// Example: number of players required to start a game.
 	max_size: u32,
 }
 
@@ -81,17 +85,24 @@ decl_event!(
 		<T as system::Trait>::AccountId,
         <T as system::Trait>::Hash
 	{
-		// CreatedGroup should provide the AccountId and group_id Hash to get recorded in another system
+		/// CreatedGroup should provide the AccountId and group_id Hash to get recorded in another system
 		CreatedGroup(Hash, AccountId, u32),
 
+		/// This event allows event listener to update DB and UI with name change
 		GroupRenamed(Hash, Vec<u8>),
 
+		/// This event allows event listener to update DB and UI with group size change.
+		/// The max_size and current_size values are also provided.
+		/// This would be useful for allowing more/less users to join the group.
 		GroupSizeChanged(Hash, u32, u32),
 
+		/// Event fired when the owner removes a group.
 		GroupRemoved(Hash),
 
+		/// Event fired when a member joins a group. The max_size and current_size values are also provided.
 		MemberJoinedGroup(Hash, AccountId, u32, u32),
 
+		/// Event fired when a member leaves a group. The max_size and current_size values are also provided.
 		MemberLeftGroup(Hash, AccountId, u32, u32),
 	}
 );
@@ -278,9 +289,18 @@ decl_module! {
 			Ok(())
 		}
 
-		// This method is meant to be used for absolute verification that an AccountId is a member of
-		// the specified group. Currently, group membership is dynamic
+		/// This method is meant to be used for absolute verification that an AccountId is a member of
+		/// the specified group. Currently, group membership is dynamic
 		fn verify_group_member(origin, group_id: T::Hash, user: T::AccountId) -> Result {
+			let _sender = ensure_signed(origin)?;
+			ensure!(<Groups<T>>::exists(group_id), "This group does not exist");
+			let group = Self::group(group_id);
+			// if group.members.contains(&user) {
+			// 	Self::deposit_event(RawEvent::VerifiedGroupMember(group_id, user));
+			// } else {
+			// 	Self::deposit_event(RawEvent::NotGroupMember(group_id, user));
+			// }
+
 			Ok(())
 		}
 	}
@@ -292,6 +312,11 @@ impl<T: Trait> Module<T> {
 	pub fn get_time() -> T::Moment {
 		let now = <timestamp::Module<T>>::get();
 		now
+	}
+
+	pub fn is_group_member(group_id: T::Hash, user: T::AccountId) -> bool {
+		let group = Self::group(group_id);
+		group.members.contains(&user)
 	}
 }
 
