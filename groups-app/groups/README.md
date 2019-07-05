@@ -39,7 +39,7 @@ The following are some ideas for future improvements and enhancements.
 * Demonstrate integration with other/future voting module libs.
 
 
-===================================================================================================
+================================================================
 
 # Developer Notes
 
