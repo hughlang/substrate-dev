@@ -16,8 +16,9 @@ use core::str;
 #[cfg(feature = "std")]
 use std::str;
 
-pub trait Trait: system::Trait + timestamp::Trait {
-	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
+
+pub trait Trait: balances::Trait + timestamp::Trait {
+    type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
 }
 
 // #[derive(Encode, Decode, Default, Clone, PartialEq)]
@@ -43,25 +44,9 @@ decl_storage! {
 	// owned groups later, additional arrays and maps make it possible to find the number of groups owned by an
 	// AccountId and lookup the Hash of a group based on the index values.
 	trait Store for Module<T: Trait> as Pool {
-		// These are the config values that match the values in the testnet_genesis in chain_spec.rs
-		// For unit tests, these also have to be added to the GenesisConfig
-		// MaxGroupSize get(max_group_size) config(): Option<u32>;
-		// MaxPoolPerOwner get(max_groups_per_owner) config(): Option<u64>;
-		// MaxNameSize get(max_name_size) config(): Option<usize>;
 
-		// // These are the primary storage vars for storing the Group struct and recording ownership of a Group
-		// Pool get(group): map T::Hash => Group<T::AccountId, T::Hash>;
-		// GroupOwner get(owner_of): map T::Hash => Option<T::AccountId>;
-
-		// // This is a generic counter of all groups created in the system.
-		// AllPoolCount get(all_groups_count): u64;
-		// // TODO: Make this more useful by creating a lookup mapping of index to Hash?
-		// // This might be useful for iterating through all known groups, but
-
-		// // These are the mappings that provide lookups for owned groups, given AccountId or Hash
-        // OwnedPoolArray get(owned_group_by_index): map (T::AccountId, u64) => T::Hash;
-        // OwnedPoolCount get(owned_group_count): map T::AccountId => u64;
-        // OwnedPoolIndex get(owned_groups_index): map T::Hash => u64;
+        BalanceVal get(balance_val): Option<T::Balance>;
+		// SubPool get(subpool): map T::Hash => Group<T::AccountId, T::Hash>;
 
 		Nonce: u64;
 	}
@@ -72,13 +57,11 @@ decl_storage! {
 The events declared here are meant to be used by an external event listener to record state information
 in an external datastore.
 */
+
 decl_event!(
-	pub enum Event<T> where
-		<T as system::Trait>::AccountId,
-        // <T as system::Trait>::Hash
-	{
-		SomethingStored(u32, AccountId),
-	}
+    pub enum Event<T> where B = <T as balances::Trait>::Balance {
+        NewBalance(B),
+    }
 );
 
 decl_module! {
@@ -87,6 +70,25 @@ decl_module! {
 
 		fn deposit_event<T>() = default;
 
+		pub fn add_funds(origin, increase_by: T::Balance) -> Result {
+			// This is a public call, so we ensure that the origin is some signed account.
+			let _sender = ensure_signed(origin)?;
+
+			// use the `::get` on the storage item type itself
+			let balance_val = <BalanceVal<T>>::get();
+
+			// Calculate the new value.
+			let new_balance = balance_val.map_or(increase_by, |val| val + increase_by);
+
+			// Put the new value into storage.
+			<BalanceVal<T>>::put(new_balance);
+
+			// Deposit an event to let the outside world know this happened.
+			Self::deposit_event(RawEvent::NewBalance(increase_by));
+
+			// All good.
+			Ok(())
+		}
 
 	}
 }
