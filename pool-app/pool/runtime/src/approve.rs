@@ -17,8 +17,23 @@ use core::str;
 use std::str;
 
 
-pub trait Trait: balances::Trait + timestamp::Trait {
+pub trait Trait: system::Trait + timestamp::Trait {
     type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
+}
+
+#[derive(Encode, Decode, Default, Clone, PartialEq)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub struct Decision<A, H> {
+	/// Hash unique random id
+    id: H,
+	/// Reference to the Group
+	group_id: H,
+	/// Vec of AccountIds
+	approvers: Vec<A>,
+	/// Maximum number of members in group. Note that there is no min size of group since that is
+	/// likely a business rule that can be handled in the dapp or external systems.
+	/// Example: number of players required to start a game.
+	record: H,
 }
 
 decl_storage! {
@@ -28,8 +43,6 @@ decl_storage! {
 	// AccountId and lookup the Hash of a group based on the index values.
 	trait Store for Module<T: Trait> as Approve {
 
-        BalanceVal get(balance_val): Option<T::Balance>;
-		// SubApprove get(subpool): map T::Hash => Group<T::AccountId, T::Hash>;
 
 		Nonce: u64;
 	}
@@ -37,13 +50,16 @@ decl_storage! {
 
 
 /*
-The events declared here are meant to be used by an external event listener to record state information
-in an external datastore.
-*/
+Approve events TODO:
+–
 
+*/
 decl_event!(
-    pub enum Event<T> where B = <T as balances::Trait>::Balance {
-        NewBalance(B),
+	pub enum Event<T> where
+		<T as system::Trait>::AccountId,
+        <T as system::Trait>::Hash
+	{
+		ApprovalReceived(Hash, AccountId, u32),
     }
 );
 
@@ -53,23 +69,15 @@ decl_module! {
 
 		fn deposit_event<T>() = default;
 
-		pub fn add_funds(origin, increase_by: T::Balance) -> Result {
-			// This is a public call, so we ensure that the origin is some signed account.
-			let _sender = ensure_signed(origin)?;
 
-			// use the `::get` on the storage item type itself
-			let balance_val = <BalanceVal<T>>::get();
+		/*
+		Functions TODO:
+		– register topic
+		– record choice (approve, deny)
+		–
 
-			// Calculate the new value.
-			let new_balance = balance_val.map_or(increase_by, |val| val + increase_by);
-
-			// Put the new value into storage.
-			<BalanceVal<T>>::put(new_balance);
-
-			// Deposit an event to let the outside world know this happened.
-			Self::deposit_event(RawEvent::NewBalance(increase_by));
-
-			// All good.
+		*/
+		fn register_topic(origin, group_id: T::Hash, max_size: u32) -> Result {
 			Ok(())
 		}
 

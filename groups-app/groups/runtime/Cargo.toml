@@ -20,7 +20,6 @@ std = [
     'safe-mix/std',
     'consensus-aura/std',
     'offchain-primitives/std',
-    'substrate-module-template/std',
 ]
 
 [dependencies.aura]
@@ -28,10 +27,6 @@ default_features = false
 git = 'https://github.com/paritytech/substrate.git'
 package = 'srml-aura'
 rev = '047e887d1191aa0b85f46570a432c5665bfc1b02'
-
-[dependencies.substrate-module-template]
-default_features = false
-path = '../../substrate-module-template/'
 
 [dependencies.balances]
 default_features = false
