@@ -1,6 +1,6 @@
-# Pool Module
+# Pool
 
-This is an experimental module for managing a pooled group of funds and the transaction amounts.
+This is an experimental module for managing a pooled group of funds and the transaction amounts. Several modules are being developed in this runtime to experiment with using the modules creatively to support features for a game of chance.
 
 ## Pool functions
 
@@ -8,12 +8,25 @@ This is an experimental module for managing a pooled group of funds and the tran
 * The pool has an AccountId where the Balance is stored
 * The pool may be an aggregation of funds across subpools that do not have their own AccountIds?
 
+## Decision functions
+
+* Creates and stores decision records that represent the hash of a set of Approvals
+
+
+## Groups functions
+
+This is copied from the Groups prototype SRML, also found in this repo.
+
 ## Faucet functions
 
 This is a speculative feature that allows permissioned faucet distributions.
 
 * Allows one AccountId to create a fund that is used by others in a Group.
 
+## Research topics
+
+* Use "session"
+* Use "era" for controlling duration of a session/game.
 
 ================================================================
 

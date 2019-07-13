@@ -55,9 +55,9 @@ pub type BlockNumber = u64;
 /// Index of an account's extrinsic in the chain.
 pub type Nonce = u64;
 
-/// Used for the module pool in `./pool.rs`
+/// Custom modules in this runtime
 mod pool;
-/// Used for the module groups in `./groups.rs`
+mod approve;
 mod groups;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
@@ -192,6 +192,9 @@ impl sudo::Trait for Runtime {
 impl pool::Trait for Runtime {
 	type Event = Event;
 }
+impl approve::Trait for Runtime {
+	type Event = Event;
+}
 impl groups::Trait for Runtime {
 	type Event = Event;
 }
@@ -210,6 +213,7 @@ construct_runtime!(
 		Balances: balances,
 		Sudo: sudo,
 		Pool: pool::{Module, Call, Storage, Event<T>},
+		Approve: approve::{Module, Call, Storage, Event<T>},
 		Groups: groups::{Module, Call, Storage, Event<T>, Config<T>},
 	}
 );
