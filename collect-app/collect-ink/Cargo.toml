@@ -1,5 +1,5 @@
 [package]
-name = "flipper"
+name = "collect"
 version = "0.1.0"
 authors = ["[your_name] <[your_email]>"]
 edition = "2018"
@@ -22,7 +22,7 @@ rev = "efe69028cc5bd9ec86bfc15f52162b39c560c194"
 parity-codec = { version = "3.3", default-features = false, features = ["derive"] }
 
 [lib]
-name = "flipper"
+name = "collect"
 crate-type = ["cdylib"]
 
 [features]

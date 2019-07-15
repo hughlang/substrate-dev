@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-PROJNAME=flipper
+PROJNAME=collect
 
 # cargo clean
 # rm Cargo.lock
