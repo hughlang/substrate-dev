@@ -2,13 +2,15 @@
 
 This is an experimental module for managing a pooled group of funds and the transaction amounts. Several modules are being developed in this runtime to experiment with using the modules creatively to support features for a game of chance.
 
+The information below is still in the planning stage, so don't take any of it seriously.
+
 ## Pool functions
 
 * A Pool is primarily represented by a Balance where amounts are added and removed.
 * The pool has an AccountId where the Balance is stored
 * The pool may be an aggregation of funds across subpools that do not have their own AccountIds?
 
-## Decision functions
+## Approve functions
 
 * Creates and stores decision records that represent the hash of a set of Approvals
 
@@ -25,8 +27,13 @@ This is a speculative feature that allows permissioned faucet distributions.
 
 ## Research topics
 
-* Use "session"
+* Session module
+* Treasury module (removes need for Pool module)
 * Use "era" for controlling duration of a session/game.
+* Inherents wrapper around external oracle proof
+
+
+
 
 ================================================================
 
