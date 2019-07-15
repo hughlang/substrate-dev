@@ -20,6 +20,7 @@ dependencies = [
  "ink_core 0.1.0 (git+https://github.com/paritytech/ink?rev=efe69028cc5bd9ec86bfc15f52162b39c560c194)",
  "ink_lang 0.1.0 (git+https://github.com/paritytech/ink?rev=efe69028cc5bd9ec86bfc15f52162b39c560c194)",
  "ink_model 0.1.0 (git+https://github.com/paritytech/ink?rev=efe69028cc5bd9ec86bfc15f52162b39c560c194)",
+ "parity-codec 3.5.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
