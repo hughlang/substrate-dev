@@ -1,69 +1,57 @@
-#![cfg_attr(not(any(test, feature = "std")), no_std)]
+#![cfg_attr(not(any(test, feature = "test-env")), no_std)]
 
-// Import the `contract!` macro
+use ink_core::{
+    env::DefaultSrmlTypes,
+    memory::format,
+    storage,
+};
 use ink_lang::contract;
-use ink_core::storage;
-use ink_core::env::DefaultSrmlTypes;
-use ink_core::memory::format;
 
 contract! {
     #![env = DefaultSrmlTypes]
 
-    struct Incrementer {
-        // Storage Declaration
-        owner: storage::Value<AccountId>,
-        value: storage::Value<u64>,
-        my_value: storage::HashMap<AccountId, u64>,
+    struct Erc20 {
+        /// The total supply.
+        total_supply: storage::Value<Balance>,
+        /// The balance of each user.
+        balances: storage::HashMap<AccountId, Balance>,
     }
 
-    impl Deploy for Incrementer {
-        fn deploy(&mut self, init_value: u64) {
-            // Contract Constructor
-            self.owner.set(env.caller());
-            self.value.set(init_value);
-        }
+    impl Deploy for Erc20 {
+        fn deploy(&mut self, init_value: Balance) {
+            // ACTION: `set` the total supply to `init_value`
+            // ACTION: `insert` the `init_value` as the `env.caller()` balance
+            self.total_supply.set(init_value);
+            self.balances.insert(env.caller(), init_value);        }
     }
 
-    // Public: Implementation of Contract Functions
-    impl Incrementer {
-        pub(external) fn get(&self) -> u64 {
-            // ACTION: Use `env.println` to print the value of `self.value`
-            // ACTION: Return `self.value`
-            env.println(&format!("Incrementer::get = {:?}", *self.value));
-            *self.value
+    impl Erc20 {
+        /// Returns the total number of tokens in existence.
+        pub(external) fn total_supply(&self) -> Balance {
+            // ACTION: Print the total supply to the node's output
+            // ACTION: Return the total supply
+            let total_supply = *self.total_supply;
+            env.println(&format!("Erc20::total_supply = {:?}", total_supply));
+            total_supply
         }
 
-        pub(external) fn inc(&mut self, by: u64) {
-            self.value += by;
-        }
-
-        pub(external) fn get_mine(&self) -> u64 {
-            // ACTION: Get `my_value` using `my_value_or_zero` on `env.caller()`
-            // ACTION: Print `my_value` to simplify on-chain testing
-            // ACTION: Return `my_value` at the end
-            let caller = env.caller();
-            let value = self.my_value_or_zero(&caller);
-            env.println(&format!("Your value is {:?}", value));
-            value
-        }
-
-        pub(external) fn inc_mine(&mut self, by: u64) {
-            // ACTION: Get `my_value` using `my_value_or_zero` to get the current value of `env.caller()`
-            // ACTION: Insert the new value `(my_value + by)` back into the mapping
-
-            let caller = env.caller();
-            let my_number = self.my_value_or_zero(&caller);
-            self.my_value.insert(caller, my_number + by);
+        /// Returns the balance of the given AccountId.
+        pub(external) fn balance_of(&self, owner: AccountId) -> Balance {
+            // ACTION: Print the balance of `owner`
+            // ACTION: Return the balance of `owner`
+            //   HINT: Use `balance_of_or_zero` to get the `owner` balance
+            let balance = self.balance_of_or_zero(&owner);
+            env.println(&format!("Erc20::balance_of(owner = {:?}) = {:?}", owner, balance));
+            balance
         }
     }
 
-    // Private methods
-    impl Incrementer {
-        fn my_value_or_zero(&self, of: &AccountId) -> u64 {
-            // ACTION: `get` the value of `of` and `unwrap_or` return 0
-            // ACTION: Return the value at the end
-            let balance = self.my_value.get(of).unwrap_or(&0);
-            *balance
+    impl Erc20 {
+        /// Returns the balance of the AccountId or 0 if there is no balance.
+        fn balance_of_or_zero(&self, of: &AccountId) -> Balance {
+            // ACTION: `get` the balance of `of`, then `unwrap_or` fallback to 0
+            // ACTION: Return the balance
+            *self.balances.get(of).unwrap_or(&0)
         }
     }
 }
@@ -71,10 +59,19 @@ contract! {
 #[cfg(all(test, feature = "test-env"))]
 mod tests {
     use super::*;
+    use ink_core::env;
+    type Types = ink_core::env::DefaultSrmlTypes;
 
     #[test]
-    fn incrementer_works() {
-        // Test Your Contract
+    fn deployment_works() {
+        let alice = AccountId::from([0x0; 32]);
+        env::test::set_caller::<Types>(alice);
+
+        // Deploy the contract with some `init_value`
+        let erc20 = Erc20::deploy_mock(1234);
+        // Check that the `total_supply` is `init_value`
+        assert_eq!(erc20.total_supply(), 1234);
+        // Check that `balance_of` Alice is `init_value`
+        assert_eq!(erc20.balance_of(alice), 1234);
     }
 }
-
