@@ -16,11 +16,20 @@ contract! {
         value: Balance,
     }
 
+    // Event emitted when an approval occurs
+    event Approval {
+        owner: AccountId,
+        spender: AccountId,
+        value: Balance,
+    }
+
     struct Erc20 {
         /// The total supply.
         total_supply: storage::Value<Balance>,
         /// The balance of each user.
         balances: storage::HashMap<AccountId, Balance>,
+        /// Balances that are spendable by non-owners: (owner, spender) -> allowed
+        allowances: storage::HashMap<(AccountId, AccountId), Balance>,
     }
 
     impl Deploy for Erc20 {
@@ -60,10 +69,55 @@ contract! {
             balance
         }
 
+        /// Returns the amount of tokens that an owner allowed to a spender.
+        pub(external) fn allowance(&self, owner: AccountId, spender: AccountId) -> Balance {
+            // ACTION: Create a getter for the `allowances` HashMap
+            //   HINT: Take a look at the getters above if you forget the details
+            // ACTION: Return the `allowance` at the end
+           let allowance = self.allowance_or_zero(&owner, &spender);
+            env.println(&format!(
+                "Erc20::allowance(owner = {:?}, spender = {:?}) = {:?}",
+                owner, spender, allowance
+            ));
+            allowance
+        }
+
         /// Transfers token from the sender to the `to` AccountId.
         pub(external) fn transfer(&mut self, to: AccountId, value: Balance) -> bool {
             // ACTION: Call the `transfer_impl` with `from` as `env.caller()`
             self.transfer_impl(env, env.caller(), to, value)
+        }
+
+        /// Approve the passed AccountId to spend the specified amount of tokens
+        /// on the behalf of the message's sender.
+        pub(external) fn approve(&mut self, spender: AccountId, value: Balance) -> bool {
+            // ACTION: Get the `env.caller()` and store it as the `owner`
+            // ACTION: Insert the new allowance into the `allowances` HashMap
+            //   HINT: The key tuple is `(owner, spender)`
+            // ACTION: `emit` the `Approval` event you created using these values
+            // ACTION: Return true if everything was successful
+            let owner = env.caller();
+            self.allowances.insert((owner, spender), value);
+            env.emit(Approval {
+                owner: owner,
+                spender: spender,
+                value: value
+            });
+            true
+        }
+
+        /// Transfer tokens from one AccountId to another.
+        pub(external) fn transfer_from(&mut self, from: AccountId, to: AccountId, value: Balance) -> bool {
+            // ACTION: Get the allowance for `(from, env.caller())` using `allowance_or_zero`
+            // ACTION: `if` the `allowance` is less than the `value`, exit early and return `false`
+            // ACTION: `insert` the new allowance into the map for `(from, env.caller())`
+            // ACTION: Finally, call the `transfer_impl` for `from` and `to`
+            let allowance = self.allowance_or_zero(&from, &env.caller());
+            if allowance < value {
+                return false
+            }
+            self.allowances.insert((from, env.caller()), allowance - value);
+            self.transfer_impl(env, from, to, value)
         }
     }
 
@@ -73,6 +127,12 @@ contract! {
             // ACTION: `get` the balance of `of`, then `unwrap_or` fallback to 0
             // ACTION: Return the balance
             *self.balances.get(of).unwrap_or(&0)
+        }
+
+        /// Returns the allowance or 0 of there is no allowance.
+        fn allowance_or_zero(&self, owner: &AccountId, spender: &AccountId) -> Balance {
+            // ACTION: Return the allowance between `(owner, spender)`, `unwrap_or` return 0
+            *self.allowances.get(&(*owner, *spender)).unwrap_or(&0)
         }
 
         /// Transfers token from a specified AccountId to another AccountId.
@@ -140,6 +200,40 @@ mod tests {
     }
 
     #[test]
+    fn allowance_works() {
+        let alice = AccountId::from([0x0; 32]);
+        let bob = AccountId::from([0x1; 32]);
+        let charlie = AccountId::from([0x2; 32]);
+
+        env::test::set_caller::<Types>(alice);
+        // Deploy the contract with some `init_value`
+        let mut erc20 = Erc20::deploy_mock(1234);
+        // Bob does not have an allowance from Alice's balance
+        assert_eq!(erc20.allowance(alice, bob), 0);
+        // Thus, Bob cannot transfer out of Alice's account
+        env::test::set_caller::<Types>(bob);
+        assert_eq!(erc20.transfer_from(alice, bob, 1), false);
+        // Alice can approve bob for some of her funds
+        env::test::set_caller::<Types>(alice);
+        assert_eq!(erc20.approve(bob, 20), true);
+        // And the allowance reflects that correctly
+        assert_eq!(erc20.allowance(alice, bob), 20);
+
+        // Charlie cannot send on behalf of Bob
+        env::test::set_caller::<Types>(charlie);
+        assert_eq!(erc20.transfer_from(alice, bob, 10), false);
+        // Bob cannot transfer more than he is allowed
+        env::test::set_caller::<Types>(bob);
+        assert_eq!(erc20.transfer_from(alice, charlie, 25), false);
+        // A smaller amount should work though
+        assert_eq!(erc20.transfer_from(alice, charlie, 10), true);
+        // Check that the allowance is updated
+        assert_eq!(erc20.allowance(alice, bob), 10);
+        // and the balance transferred to the right person
+        assert_eq!(erc20.balance_of(charlie), 10);
+    }
+
+    #[test]
     fn events_work() {
         let alice = AccountId::from([0x0; 32]);
         let bob = AccountId::from([0x1; 32]);
@@ -153,5 +247,8 @@ mod tests {
         // Event should be emitted for transfers
         assert_eq!(erc20.transfer(bob, 10), true);
         assert_eq!(env::test::emitted_events::<Types>().count(), 2);
+        // Event should be emitted for approvals
+        assert_eq!(erc20.approve(bob, 20), true);
+        assert_eq!(env::test::emitted_events::<Types>().count(), 3);
     }
 }
